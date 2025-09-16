@@ -208,13 +208,13 @@ def generate_output_filename(args) -> str:
 
 def save_statistics_to_file(filename: str, content: str):
     """
-    Save statistics content to a file in local/datasets-stats directory.
+    Save statistics content to a file in local/dataset-stats directory.
 
     Args:
         filename: Name of the output file
         content: Statistics content to save
     """
-    output_dir = Path("local/datasets-stats")
+    output_dir = Path("local/dataset-stats")
     output_dir.mkdir(parents=True, exist_ok=True)
 
     output_path = output_dir / filename
@@ -295,7 +295,7 @@ def main():
         '--save-to-file',
         action='store_true',
         default=True,
-        help='Save statistics to file in local/datasets-stats directory (default: True)'
+        help='Save statistics to file in local/dataset-stats directory (default: True)'
     )
 
     parser.add_argument(
