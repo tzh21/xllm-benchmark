@@ -448,18 +448,9 @@ def run_benchmark(args):
         extra_request_body = json.loads(args.extra_request_body)
 
     # Set xLLM URL
-    args.port = args.port or 9811
-    model_url = (
-        f"{args.base_url}/v1/models"
-        if args.base_url
-        else f"http://{args.host}:{args.port}/v1/models"
-    )
-    api_url = (
-        f"{args.base_url}/v1/completions"
-        if args.base_url
-        else f"http://{args.host}:{args.port}/v1/completions"
-    )
-    base_url = args.base_url or f"http://{args.host}:{args.port}"
+    model_url = f"{args.base_url}/v1/models"
+    api_url = f"{args.base_url}/v1/completions"
+    base_url = args.base_url
 
     # Get model name
     if args.model is None:
@@ -484,6 +475,8 @@ def run_benchmark(args):
     # Load dataset
     input_requests = get_dataset(args, tokenizer)
     args.num_prompts = len(input_requests)
+
+    print(f"Number of input requests: {len(input_requests)}")
 
     # Run benchmark
     if not args.multi:
@@ -569,14 +562,8 @@ def main():
     parser.add_argument(
         "--base-url",
         type=str,
-        default=None,
-        help="Server or API base url if not using http host and port.",
-    )
-    parser.add_argument(
-        "--host", type=str, default="0.0.0.0", help="Default host is 0.0.0.0."
-    )
-    parser.add_argument(
-        "--port", type=int, default=9811, help="Port for xLLM server (default: 9811)"
+        required=True,
+        help="Server or API base url (e.g., http://127.0.0.1:9811).",
     )
     parser.add_argument(
         "--model",

@@ -384,8 +384,8 @@ def sample_trace_requests(
     end_time: Optional[float] = None,
     sampling_ratio: float = 1.0,
 ) -> List[Tuple[str, int, int, float]]:
-    
-    # Load the dataset.
+
+    # Load the dataset from trace file, num_prompts controls how many entries to read
     mooncake_data = []
     with open(trace_path, 'r') as file:
         for line in file:
@@ -401,7 +401,7 @@ def sample_trace_requests(
             if num_prompts is not None and len(mooncake_data) == num_prompts:
                 break
 
-    # Apply sampling ratio
+    # Apply sampling ratio to the loaded trace data
     if sampling_ratio < 1.0:
         original_count = len(mooncake_data)
         sample_size = max(1, int(original_count * sampling_ratio))
@@ -422,13 +422,13 @@ def sample_trace_requests(
         mooncake_data.sort(key=lambda x: x["timestamp"])
         print(f"Sampled {len(mooncake_data)} requests from {original_count} (ratio: {sampling_ratio})")
 
-    # Handle num_prompts=None case - use all available trace data
-    if num_prompts is None:
-        num_prompts = len(mooncake_data)
-        print(f"Using all available trace data: {num_prompts} requests")
-    elif len(mooncake_data) < num_prompts:
-        print(f"Requested {num_prompts} but only {len(mooncake_data)} available in trace data")
-        num_prompts = len(mooncake_data)
+    # Use all mooncake_data entries (after sampling) to generate prompts
+    final_prompt_count = len(mooncake_data)
+    if final_prompt_count == 0:
+        print("Warning: No trace data available to generate prompts")
+        return []
+
+    print(f"Generating {final_prompt_count} prompts from trace data")
 
     if not os.path.isfile(dataset_path):
         dataset_path = download_and_cache_file(SHAREGPT_URL)
@@ -445,22 +445,38 @@ def sample_trace_requests(
     input_requests: List[Tuple[str, int, int, float]] = []
     max_token_limit = 8192  # Safety limit to prevent excessive token sequences
 
-    for data in dataset:
-        i = len(input_requests)
-        if i == num_prompts:
-            break
+    for i, trace_entry in enumerate(mooncake_data):
+        # Find a suitable prompt from the dataset
+        if i >= len(dataset):
+            # If we've exhausted the dataset, cycle back to the beginning
+            data = dataset[i % len(dataset)]
+        else:
+            data = dataset[i]
 
         # Tokenize the prompts and completions.
         prompt = data[0]
         prompt_token_ids = tokenizer.encode(prompt)
         prompt_len = len(prompt_token_ids)
 
-        # Skip empty prompt
-        if prompt_len == 0:
-            continue
+        # Skip empty prompt and try next one
+        while prompt_len == 0 and i < len(dataset):
+            i += 1
+            if i >= len(dataset):
+                data = dataset[i % len(dataset)]
+            else:
+                data = dataset[i]
+            prompt = data[0]
+            prompt_token_ids = tokenizer.encode(prompt)
+            prompt_len = len(prompt_token_ids)
 
-        input_len = int(mooncake_data[i]["input_length"])
-        output_len = int(mooncake_data[i]["output_length"])
+        # If still empty, use a default prompt
+        if prompt_len == 0:
+            prompt = "Hello"
+            prompt_token_ids = tokenizer.encode(prompt)
+            prompt_len = len(prompt_token_ids)
+
+        input_len = int(trace_entry["input_length"])
+        output_len = int(trace_entry["output_length"])
 
         # Apply safety limits to prevent excessive token sequences
         if input_len > max_token_limit:
@@ -483,11 +499,11 @@ def sample_trace_requests(
         #     print(f"Decoding large sequence: {len(input_ids)} tokens for entry {i}")
 
         prompt = tokenizer.decode(input_ids)
-        input_requests.append((prompt, input_len, output_len, mooncake_data[i]["timestamp"]))
+        input_requests.append((prompt, input_len, output_len, trace_entry["timestamp"]))
 
         # Progress indicator
         if (i + 1) % 1000 == 0:
-            print(f"Processed {i + 1}/{num_prompts} requests...")
+            print(f"Processed {i + 1}/{final_prompt_count} requests...")
 
     return input_requests
 
