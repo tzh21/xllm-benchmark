@@ -92,6 +92,10 @@ class BenchmarkMetrics:
 SHAREGPT_URL = "https://huggingface.co/datasets/anon8231489123/ShareGPT_Vicuna_unfiltered/resolve/main/ShareGPT_V3_unfiltered_cleaned_split.json"
 
 
+def interpolate_timestamp(start, end):
+    return random.uniform(start, end)
+
+
 def download_and_cache_file(url: str, filename: Optional[str] = None):
     """Read and cache a file from a url."""
     if filename is None:
@@ -373,11 +377,11 @@ def sample_generated_shared_prefix_requests(
 def sample_trace_requests(
     dataset_path: str,
     trace_path: str,
-    num_prompts: int,
-    trace_scale: float,
     tokenizer: PreTrainedTokenizerBase,
-    start_time: float,
-    end_time: float,
+    num_prompts: Optional[int] = None,
+    trace_scale: float = 1.0,
+    start_time: Optional[float] = None,
+    end_time: Optional[float] = None,
     sampling_ratio: float = 1.0,
 ) -> List[Tuple[str, int, int, float]]:
     
@@ -394,7 +398,7 @@ def sample_trace_requests(
                     break
             data["timestamp"] = timestamp / trace_scale
             mooncake_data.append(data)
-            if len(mooncake_data) == num_prompts:
+            if num_prompts is not None and len(mooncake_data) == num_prompts:
                 break
 
     # Apply sampling ratio
@@ -404,8 +408,26 @@ def sample_trace_requests(
         mooncake_data = random.sample(mooncake_data, sample_size)
         mooncake_data.sort(key=lambda x: x["timestamp"])
         print(f"Sampled {sample_size} requests from {original_count} (ratio: {sampling_ratio})")
+    elif sampling_ratio > 1.0:
+        original_count = len(mooncake_data)
+        additional_request = int((sampling_ratio - 1.0) * original_count)
 
-    if len(mooncake_data) < num_prompts:
+        for _ in range(additional_request):
+            # Avoid inserting at the last index to prevent edge case
+            # Use len(mooncake_data) - 2 to ensure we can always find a valid interpolation range
+            insert_index = random.randint(0, len(mooncake_data) - 2)
+            new_request = mooncake_data[insert_index].copy()
+            new_request['timestamp'] = interpolate_timestamp(mooncake_data[insert_index]['timestamp'], mooncake_data[insert_index+1]['timestamp'])
+            mooncake_data.insert(insert_index + 1, new_request)
+        mooncake_data.sort(key=lambda x: x["timestamp"])
+        print(f"Sampled {len(mooncake_data)} requests from {original_count} (ratio: {sampling_ratio})")
+
+    # Handle num_prompts=None case - use all available trace data
+    if num_prompts is None:
+        num_prompts = len(mooncake_data)
+        print(f"Using all available trace data: {num_prompts} requests")
+    elif len(mooncake_data) < num_prompts:
+        print(f"Requested {num_prompts} but only {len(mooncake_data)} available in trace data")
         num_prompts = len(mooncake_data)
 
     if not os.path.isfile(dataset_path):

@@ -185,13 +185,13 @@ def get_dataset(args, tokenizer):
             tokenizer=tokenizer,
             args=args
         )
-    elif args.dataset_name in ["burstgpt", "mooncake", "azure_code", "azure_conv"]:
+    elif args.dataset_name == "trace":
         return sample_trace_requests(
             dataset_path=args.dataset_path,
             trace_path=args.trace_path,
+            tokenizer=tokenizer,
             num_prompts=args.num_prompts,
             trace_scale=args.trace_scale,
-            tokenizer=tokenizer,
             start_time=args.trace_start_time,
             end_time=args.trace_end_time,
             sampling_ratio=args.sampling_ratio,
@@ -399,6 +399,8 @@ async def benchmark(
             print("{:<40} {:<10.4f}".format("TTFT SLO violation rate:", metrics.slo_ttft_violation_rate))
         if metrics.slo_tpot_violation_rate is not None:
             print("{:<40} {:<10.4f}".format("TPOT SLO violation rate:", metrics.slo_tpot_violation_rate))
+        if metrics.slo_ttft_or_tpot_violation_rate is not None:
+            print("{:<40} {:<10.4f}".format("SLO TTFT or TPOT violation rate:", metrics.slo_ttft_or_tpot_violation_rate))
 
     print("=" * 50)
 
@@ -426,6 +428,9 @@ async def benchmark(
         "median_itl_ms": metrics.median_itl_ms,
         "p99_itl_ms": metrics.p99_itl_ms,
         "concurrency": metrics.concurrency,
+        "slo_ttft_violation_rate": metrics.slo_ttft_violation_rate,
+        "slo_tpot_violation_rate": metrics.slo_tpot_violation_rate,
+        "slo_ttft_or_tpot_violation_rate": metrics.slo_ttft_or_tpot_violation_rate,
     }
 
 
@@ -535,14 +540,17 @@ def save_results(args, result):
         now = datetime.now().strftime("%m%d%H%M%S")
         os.makedirs("results", exist_ok=True)
 
+        # Handle num_prompts=None for file naming
+        prompt_count = args.num_prompts if args.num_prompts is not None else "all"
+
         if args.dataset_name == "random":
-            output_file = f"results/xllm_{now}_{args.num_prompts}_{args.dataset_name}_{args.random_input_len}_{args.random_output_len}.jsonl"
-        elif args.dataset_name in ["burstgpt", "mooncake", "azure_code", "azure_conv"]:
-            output_file = f"results/xllm_{now}_{args.num_prompts}_{args.dataset_name}_{args.trace_scale}.jsonl"
+            output_file = f"results/xllm_{now}_{prompt_count}_{args.dataset_name}_{args.random_input_len}_{args.random_output_len}.jsonl"
+        elif args.dataset_name == "trace":
+            output_file = f"results/xllm_{now}_{prompt_count}_{args.dataset_name}_{args.trace_scale}.jsonl"
         elif args.dataset_name == "offline":
-            output_file = f"results/xllm_{now}_{args.num_prompts}_offline.jsonl"
+            output_file = f"results/xllm_{now}_{prompt_count}_offline.jsonl"
         else:
-            output_file = f"results/xllm_{now}_{args.num_prompts}_sharegpt.jsonl"
+            output_file = f"results/xllm_{now}_{prompt_count}_sharegpt.jsonl"
 
     # Add dataset info to result
     result["dataset_name"] = args.dataset_name
@@ -586,8 +594,7 @@ def main():
         "--dataset-name",
         type=str,
         default="sharegpt",
-        choices=["sharegpt", "random", "generated-shared-prefix", "burstgpt",
-                 "mooncake", "azure_code", "azure_conv", "offline"],
+        choices=["sharegpt", "random", "generated-shared-prefix", "trace", "offline"],
         help="Name of the dataset to benchmark on.",
     )
     parser.add_argument(
@@ -596,7 +603,7 @@ def main():
     parser.add_argument(
         "--num-prompts",
         type=int,
-        default=1000,
+        default=None,
         help="Number of prompts to process.",
     )
 

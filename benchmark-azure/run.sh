@@ -7,10 +7,10 @@ CURRENT_TIME=$(date +"%m%d-%H%M%S")
 echo "Running Azure benchmark at ${CURRENT_TIME}"
 
 # Configuration
-num_prompts=19000
-sampling_ratio=0.99
+# num_prompts=19000
+sampling_ratio=1.0
 RUNTIME_LOG="benchmark-azure/log/runtime/runtime-${CURRENT_TIME}.log"
-RESULT_FILE="benchmark-azure/log/result/result-${CURRENT_TIME}-${num_prompts}-${sampling_ratio}.jsonl"
+RESULT_FILE="benchmark-azure/log/result/result-${CURRENT_TIME}.jsonl"
 
 # Model configuration
 model=/export/home/tangzihan/modelscope/models/Qwen/Qwen2.5-7B-Instruct
@@ -26,13 +26,11 @@ mkdir -p benchmark-azure/log/result
 # Run benchmark using utils/benchmark.py
 python utils/benchmark.py \
     --base-url http://127.0.0.1:27712 \
-    --dataset-name azure_conv \
+    --dataset-name trace \
     --dataset-path $dataset_path \
     --trace-path $trace_path \
     --model $model \
-    --num-prompts $num_prompts \
     --sampling-ratio $sampling_ratio \
-    --trace-scale 1.0 \
     --slo-ttft 1000 \
     --slo-tpot 30 \
     --output-file $RESULT_FILE \
