@@ -133,250 +133,6 @@ def download_and_cache_file(url: str, filename: Optional[str] = None):
     return filename
 
 
-def sample_sharegpt_requests(
-    dataset_path: str,
-    num_requests: int,
-    tokenizer: PreTrainedTokenizerBase,
-    fixed_output_len: Optional[int] = None,
-    context_len: Optional[int] = None,
-    apply_chat_template=False,
-) -> List[Tuple[str, int, int, float]]:
-    if fixed_output_len is not None and fixed_output_len < 4:
-        raise ValueError("output_len too small")
-
-    # Download sharegpt if necessary
-    if not os.path.isfile(dataset_path) and dataset_path == "":
-        dataset_path = download_and_cache_file(SHAREGPT_URL)
-
-    # Load the dataset.
-    with open(dataset_path) as f:
-        dataset = json.load(f)
-    # Filter out the conversations with less than 2 turns.
-    dataset = [data for data in dataset if len(data["conversations"]) >= 2]
-    # Only keep the first two turns of each conversation.
-    dataset = [
-        (data["conversations"][0]["value"], data["conversations"][1]["value"])
-        for data in dataset
-    ]
-
-    # Shuffle the dataset.
-    random.shuffle(dataset)
-
-    # Filter out sequences that are too long or too short
-    filtered_dataset: List[Tuple[str, int, int]] = []
-    for i in range(len(dataset)):
-        if len(filtered_dataset) == num_requests:
-            break
-
-        # Tokenize the prompts and completions.
-        prompt = dataset[i][0]
-
-        if apply_chat_template:
-            prompt = tokenizer.apply_chat_template(
-                [{"role": "user", "content": prompt}],
-                add_generation_prompt=True,
-                tokenize=False,
-            )
-            prompt = prompt.replace(tokenizer.bos_token, "")
-
-        prompt_token_ids = tokenizer.encode(prompt)
-        completion = dataset[i][1]
-        completion_token_ids = tokenizer.encode(completion)
-        prompt_len = len(prompt_token_ids)
-        output_len = (
-            len(completion_token_ids) if fixed_output_len is None else fixed_output_len
-        )
-
-        if prompt_len < 2 or output_len < 2:
-            # Prune too short sequences.
-            continue
-
-        if context_len and prompt_len + output_len > context_len:
-            # Prune too long sequences.
-            continue
-
-        filtered_dataset.append((prompt, prompt_len, output_len, -1.0))
-
-    print(f"#Input tokens: {np.sum([x[1] for x in filtered_dataset])}")
-    print(f"#Output tokens: {np.sum([x[2] for x in filtered_dataset])}")
-    return filtered_dataset
-
-
-def sample_random_requests(
-    input_len: int,
-    output_len: int,
-    num_prompts: int,
-    range_ratio: float,
-    tokenizer: PreTrainedTokenizerBase,
-    dataset_path: str,
-) -> List[Tuple[str, int, int, float]]:
-
-    input_lens = np.random.randint(
-        max(int(input_len * range_ratio), 1),
-        input_len + 1,
-        size=num_prompts,
-    )
-    output_lens = np.random.randint(
-        int(output_len * range_ratio),
-        output_len + 1,
-        size=num_prompts,
-    )
-
-    if True:
-        # Sample token ids from ShareGPT and repeat/truncate them to satisfy the input_lens
-
-        # Download sharegpt if necessary
-        if not os.path.isfile(dataset_path):
-            dataset_path = download_and_cache_file(SHAREGPT_URL)
-
-        # Load the dataset.
-        with open(dataset_path) as f:
-            dataset = json.load(f)
-        # Filter out the conversations with less than 2 turns.
-        dataset = [data for data in dataset if len(data["conversations"]) >= 2]
-        # Only keep the first two turns of each conversation.
-        dataset = [
-            (data["conversations"][0]["value"], data["conversations"][1]["value"])
-            for data in dataset
-        ]
-        # Shuffle the dataset.
-        random.shuffle(dataset)
-
-        # Filter out sequences that are too long or too short
-        input_requests: List[Tuple[str, int, int]] = []
-        for data in dataset:
-            i = len(input_requests)
-            if i == num_prompts:
-                break
-
-            # Tokenize the prompts and completions.
-            prompt = data[0]
-            prompt_token_ids = tokenizer.encode(prompt)
-            prompt_len = len(prompt_token_ids)
-
-            # Skip empty prompt
-            if prompt_len == 0:
-                continue
-
-            if prompt_len > input_lens[i]:
-                input_ids = prompt_token_ids[: input_lens[i]]
-            else:
-                ratio = (input_lens[i] + prompt_len - 1) // prompt_len
-                input_ids = (prompt_token_ids * ratio)[: input_lens[i]]
-            prompt = tokenizer.decode(input_ids)
-            input_requests.append((prompt, int(input_lens[i]), int(output_lens[i]), -1))
-    else:
-        # Sample token ids from random integers. This can cause some NaN issues.
-        offsets = np.random.randint(0, tokenizer.vocab_size, size=num_prompts)
-        input_requests = []
-        for i in range(num_prompts):
-            prompt = tokenizer.decode(
-                [
-                    (offsets[i] + i + j) % tokenizer.vocab_size
-                    for j in range(input_lens[i])
-                ]
-            )
-            input_requests.append((prompt, int(input_lens[i]), int(output_lens[i]), -1.0))
-
-    print(f"#Input tokens: {np.sum(input_lens)}")
-    print(f"#Output tokens: {np.sum(output_lens)}")
-    return input_requests
-
-
-def gen_prompt(tokenizer, token_num):
-    """Generate a random prompt of specified token length using tokenizer vocabulary."""
-    all_available_tokens = list(tokenizer.get_vocab().values())
-    selected_tokens = random.choices(all_available_tokens, k=token_num)
-    return tokenizer.decode(selected_tokens)
-
-
-def get_gen_prefix_cache_path(args, tokenizer):
-    """Create cache directory under ~/.cache/sglang/benchmark"""
-    cache_dir = Path.home() / ".cache" / "sglang" / "benchmark"
-
-    # Create a unique cache filename based on the generation parameters
-    cache_key = (
-        f"gen_shared_prefix_{args.gsp_num_groups}_{args.gsp_prompts_per_group}_"
-        f"{args.gsp_system_prompt_len}_{args.gsp_question_len}_{args.gsp_output_len}_"
-        f"{tokenizer.__class__.__name__}.pkl"
-    )
-    return cache_dir / cache_key
-
-def sample_generated_shared_prefix_requests(
-    num_groups: int,
-    prompts_per_group: int,
-    system_prompt_len: int,
-    question_len: int,
-    output_len: int,
-    tokenizer: PreTrainedTokenizerBase,
-    args
-) -> List[Tuple[str, int, int, float]]:
-    """Generate benchmark requests with shared system prompts using random tokens and caching."""
-    cache_path = get_gen_prefix_cache_path(args, tokenizer)
-
-    # Try to load from cache first
-    if cache_path.exists():
-        print(f"\nLoading cached generated input data from {cache_path}")
-        with open(cache_path, "rb") as f:
-            return pickle.load(f)
-
-    print("\nGenerating new input data...")
-
-    # Generate system prompts for each group
-    system_prompts = []
-    for _ in range(num_groups):
-        system_prompt = gen_prompt(tokenizer, system_prompt_len)
-        system_prompts.append(system_prompt)
-
-    # Generate questions
-    questions = []
-    for _ in range(num_groups * prompts_per_group):
-        question = gen_prompt(tokenizer, question_len)
-        questions.append(question)
-
-    # Combine system prompts with questions
-    input_requests = []
-    total_input_tokens = 0
-    total_output_tokens = 0
-
-    for group_idx in tqdm(range(num_groups), desc="Generating system prompt"):
-        system_prompt = system_prompts[group_idx]
-        for prompt_idx in tqdm(
-            range(prompts_per_group), desc="Generating questions", leave=False
-        ):
-            question = questions[group_idx * prompts_per_group + prompt_idx]
-            full_prompt = f"{system_prompt}\n\n{question}"
-            prompt_len = len(tokenizer.encode(full_prompt))
-
-            input_requests.append((full_prompt, prompt_len, output_len, -1.0))
-            total_input_tokens += prompt_len
-            total_output_tokens += output_len
-
-    # Shuffle questions
-    random.shuffle(input_requests)
-
-    # Print statistics
-    print(f"\nGenerated shared prefix dataset statistics:")
-    print(f"Number of groups: {num_groups}")
-    print(f"Prompts per group: {prompts_per_group}")
-    print(f"Total prompts: {len(input_requests)}")
-    print(f"Total input tokens: {total_input_tokens}")
-    print(f"Total output tokens: {total_output_tokens}")
-    print(
-        f"Average system prompt length: {sum(len(tokenizer.encode(sp)) for sp in system_prompts) / len(system_prompts):.1f} tokens"
-    )
-    print(
-        f"Average question length: {sum(len(tokenizer.encode(q)) for q in questions) / len(questions):.1f} tokens\n"
-    )
-
-    # Save to cache
-    cache_path.parent.mkdir(parents=True, exist_ok=True)
-    print(f"Caching generated input data to {cache_path}")
-    with open(cache_path, "wb") as f:
-        pickle.dump(input_requests, f)
-
-    return input_requests
-
 def sample_trace_requests(
     dataset_path: str,
     trace_path: str,
@@ -509,6 +265,57 @@ def sample_trace_requests(
             print(f"Processed {i + 1}/{final_prompt_count} requests...")
 
     return input_requests
+
+
+def load_arxiv_summary_dataset(args, tokenizer):
+    """Load arxiv-summary dataset from parquet files"""
+    data_path = Path(args.arxiv_summary_data_dir)
+    if not data_path.exists():
+        raise ValueError(f"Data directory does not exist: {args.arxiv_summary_data_dir}")
+
+    parquet_files = list(data_path.glob("*.parquet"))
+    if args.arxiv_summary_max_files:
+        parquet_files = parquet_files[:args.arxiv_summary_max_files]
+
+    print(f"Loading {len(parquet_files)} parquet files from {args.arxiv_summary_data_dir}")
+
+    all_texts = []
+    for file_path in parquet_files:
+        df = pd.read_parquet(file_path)
+
+        # Find text column
+        text_columns = ['text', 'article', 'content']
+        for col in text_columns:
+            if col in df.columns:
+                all_texts.extend(df[col].tolist())
+                break
+        else:
+            # Use first string column
+            text_cols = [col for col in df.columns if df[col].dtype == 'object']
+            if text_cols:
+                all_texts.extend(df[text_cols[0]].tolist())
+
+    print(f"Loaded {len(all_texts)} text samples")
+
+    # Create prompts by randomly truncating texts
+    num_prompts = min(args.num_prompts, len(all_texts))
+    selected_texts = random.sample(all_texts, num_prompts)
+
+    prompts = []
+    for text in selected_texts:
+        tokens = tokenizer.encode(text, add_special_tokens=False)
+
+        if len(tokens) < args.arxiv_summary_min_length:
+            continue
+
+        if args.arxiv_summary_max_length and len(tokens) > args.arxiv_summary_max_length:
+            start_idx = random.randint(0, len(tokens) - args.arxiv_summary_max_length)
+            tokens = tokens[start_idx:start_idx + args.arxiv_summary_max_length]
+
+        prompt_text = tokenizer.decode(tokens, skip_special_tokens=True)
+        prompts.append((prompt_text, len(tokens), args.arxiv_summary_output_length, -1.0))
+
+    return prompts
 
 
 async def get_request(

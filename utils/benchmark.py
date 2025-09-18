@@ -1,6 +1,6 @@
 """
 Unified benchmarking script for xLLM inference engine.
-Supports multiple dataset types including ShareGPT, random, trace-based, and offline datasets.
+Supports trace-based and arxiv-summary datasets.
 """
 
 import argparse
@@ -28,10 +28,8 @@ from metric import (
     RequestFuncOutput,
     calculate_metrics,
     get_request,
-    sample_sharegpt_requests,
-    sample_random_requests,
-    sample_generated_shared_prefix_requests,
     sample_trace_requests,
+    load_arxiv_summary_dataset,
 )
 
 AIOHTTP_TIMEOUT = aiohttp.ClientTimeout(total=5400)
@@ -162,35 +160,7 @@ async def async_request_xllm(
 
 def get_dataset(args, tokenizer):
     """Load dataset based on specified type"""
-    if args.dataset_name == "sharegpt":
-        return sample_sharegpt_requests(
-            dataset_path=args.dataset_path,
-            num_requests=args.num_prompts,
-            tokenizer=tokenizer,
-            fixed_output_len=args.sharegpt_output_len,
-            context_len=args.sharegpt_context_len,
-            apply_chat_template=args.apply_chat_template,
-        )
-    elif args.dataset_name == "random":
-        return sample_random_requests(
-            input_len=args.random_input_len,
-            output_len=args.random_output_len,
-            num_prompts=args.num_prompts,
-            range_ratio=args.random_range_ratio,
-            tokenizer=tokenizer,
-            dataset_path=args.dataset_path,
-        )
-    elif args.dataset_name == "generated-shared-prefix":
-        return sample_generated_shared_prefix_requests(
-            num_groups=args.gsp_num_groups,
-            prompts_per_group=args.gsp_prompts_per_group,
-            system_prompt_len=args.gsp_system_prompt_len,
-            question_len=args.gsp_question_len,
-            output_len=args.gsp_output_len,
-            tokenizer=tokenizer,
-            args=args
-        )
-    elif args.dataset_name == "trace":
+    if args.dataset_name == "trace":
         return sample_trace_requests(
             dataset_path=args.dataset_path,
             trace_path=args.trace_path,
@@ -201,61 +171,10 @@ def get_dataset(args, tokenizer):
             end_time=args.trace_end_time,
             sampling_ratio=args.sampling_ratio,
         )
-    elif args.dataset_name == "offline":
-        return load_offline_dataset(args, tokenizer)
+    elif args.dataset_name == "arxiv-summary":
+        return load_arxiv_summary_dataset(args, tokenizer)
     else:
         raise ValueError(f"Unknown dataset: {args.dataset_name}")
-
-
-def load_offline_dataset(args, tokenizer):
-    """Load offline dataset from parquet files"""
-    data_path = Path(args.offline_data_dir)
-    if not data_path.exists():
-        raise ValueError(f"Data directory does not exist: {args.offline_data_dir}")
-
-    parquet_files = list(data_path.glob("*.parquet"))
-    if args.offline_max_files:
-        parquet_files = parquet_files[:args.offline_max_files]
-
-    print(f"Loading {len(parquet_files)} parquet files from {args.offline_data_dir}")
-
-    all_texts = []
-    for file_path in parquet_files:
-        df = pd.read_parquet(file_path)
-
-        # Find text column
-        text_columns = ['text', 'article', 'content']
-        for col in text_columns:
-            if col in df.columns:
-                all_texts.extend(df[col].tolist())
-                break
-        else:
-            # Use first string column
-            text_cols = [col for col in df.columns if df[col].dtype == 'object']
-            if text_cols:
-                all_texts.extend(df[text_cols[0]].tolist())
-
-    print(f"Loaded {len(all_texts)} text samples")
-
-    # Create prompts by randomly truncating texts
-    num_prompts = min(args.num_prompts, len(all_texts))
-    selected_texts = random.sample(all_texts, num_prompts)
-
-    prompts = []
-    for text in selected_texts:
-        tokens = tokenizer.encode(text, add_special_tokens=False)
-
-        if len(tokens) < args.offline_min_length:
-            continue
-
-        if args.offline_max_length and len(tokens) > args.offline_max_length:
-            start_idx = random.randint(0, len(tokens) - args.offline_max_length)
-            tokens = tokens[start_idx:start_idx + args.offline_max_length]
-
-        prompt_text = tokenizer.decode(tokens, skip_special_tokens=True)
-        prompts.append((prompt_text, len(tokens), args.offline_output_length, -1.0))
-
-    return prompts
 
 
 async def benchmark(
@@ -549,14 +468,12 @@ def save_results(args, result):
         # Handle num_prompts=None for file naming
         prompt_count = args.num_prompts if args.num_prompts is not None else "all"
 
-        if args.dataset_name == "random":
-            output_file = f"results/xllm_{now}_{prompt_count}_{args.dataset_name}_{args.random_input_len}_{args.random_output_len}.jsonl"
-        elif args.dataset_name == "trace":
+        if args.dataset_name == "trace":
             output_file = f"results/xllm_{now}_{prompt_count}_{args.dataset_name}_{args.trace_scale}.jsonl"
-        elif args.dataset_name == "offline":
-            output_file = f"results/xllm_{now}_{prompt_count}_offline.jsonl"
+        elif args.dataset_name == "arxiv-summary":
+            output_file = f"results/xllm_{now}_{prompt_count}_arxiv-summary.jsonl"
         else:
-            output_file = f"results/xllm_{now}_{prompt_count}_sharegpt.jsonl"
+            output_file = f"results/xllm_{now}_{prompt_count}_{args.dataset_name}.jsonl"
 
     # Add dataset info to result
     result["dataset_name"] = args.dataset_name
@@ -593,8 +510,8 @@ def main():
     parser.add_argument(
         "--dataset-name",
         type=str,
-        default="sharegpt",
-        choices=["sharegpt", "random", "generated-shared-prefix", "trace", "offline"],
+        default="trace",
+        choices=["trace", "arxiv-summary"],
         help="Name of the dataset to benchmark on.",
     )
     parser.add_argument(
@@ -654,52 +571,6 @@ def main():
         help="Service Level Objective for TPOT in milliseconds.",
     )
 
-    # ShareGPT dataset arguments
-    parser.add_argument(
-        "--sharegpt-output-len",
-        type=int,
-        default=None,
-        help="Output length for ShareGPT dataset.",
-    )
-    parser.add_argument(
-        "--sharegpt-context-len",
-        type=int,
-        default=None,
-        help="Context length limit for ShareGPT dataset.",
-    )
-    parser.add_argument(
-        "--apply-chat-template",
-        action="store_true",
-        help="Apply chat template to prompts.",
-    )
-
-    # Random dataset arguments
-    parser.add_argument(
-        "--random-input-len",
-        type=int,
-        default=1024,
-        help="Input length for random dataset.",
-    )
-    parser.add_argument(
-        "--random-output-len",
-        type=int,
-        default=1024,
-        help="Output length for random dataset.",
-    )
-    parser.add_argument(
-        "--random-range-ratio",
-        type=float,
-        default=0.0,
-        help="Range ratio for random dataset.",
-    )
-
-    # Generated shared prefix arguments
-    group = parser.add_argument_group("generated-shared-prefix dataset arguments")
-    group.add_argument("--gsp-num-groups", type=int, default=64)
-    group.add_argument("--gsp-prompts-per-group", type=int, default=16)
-    group.add_argument("--gsp-system-prompt-len", type=int, default=2048)
-    group.add_argument("--gsp-question-len", type=int, default=128)
-    group.add_argument("--gsp-output-len", type=int, default=256)
 
     # Trace dataset arguments
     parser.add_argument("--trace-path", type=str, default="", help="Trace file path.")
@@ -708,36 +579,36 @@ def main():
     parser.add_argument("--trace-scale", type=float, default=1)
     parser.add_argument("--sampling-ratio", type=float, default=1.0)
 
-    # Offline dataset arguments
+    # Arxiv-summary dataset arguments
     parser.add_argument(
-        "--offline-data-dir",
+        "--arxiv-summary-data-dir",
         type=str,
-        default="/export/home/tangzihan/xllm/offline-dataset/arxiv-summarization/section/",
-        help="Directory containing offline dataset parquet files.",
+        default="/export/home/tangzihan/xllm/arxiv-summary-dataset/arxiv-summarization/section/",
+        help="Directory containing arxiv-summary dataset parquet files.",
     )
     parser.add_argument(
-        "--offline-max-files",
+        "--arxiv-summary-max-files",
         type=int,
         default=None,
         help="Maximum number of parquet files to load.",
     )
     parser.add_argument(
-        "--offline-min-length",
+        "--arxiv-summary-min-length",
         type=int,
         default=100,
         help="Minimum prompt length in tokens.",
     )
     parser.add_argument(
-        "--offline-max-length",
+        "--arxiv-summary-max-length",
         type=int,
         default=2048,
         help="Maximum prompt length in tokens.",
     )
     parser.add_argument(
-        "--offline-output-length",
+        "--arxiv-summary-output-length",
         type=int,
         default=512,
-        help="Output length for offline dataset.",
+        help="Output length for arxiv-summary dataset.",
     )
 
     # Multi-rate testing
