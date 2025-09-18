@@ -601,8 +601,8 @@ def main():
 
     # Trace dataset arguments
     parser.add_argument("--trace-path", type=str, default="", help="Trace file path.")
-    parser.add_argument("--trace-start-time", type=float, default=None, help="Start time in milliseconds")
-    parser.add_argument("--trace-end-time", type=float, default=None, help="End time in milliseconds")
+    parser.add_argument("--trace-start-time", type=float, default=None, help="Start time in seconds")
+    parser.add_argument("--trace-end-time", type=float, default=None, help="End time in seconds")
     parser.add_argument("--trace-scale", type=float, default=1)
     parser.add_argument("--sampling-ratio", type=float, default=1.0)
 

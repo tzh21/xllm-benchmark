@@ -149,13 +149,13 @@ def sample_trace_requests(
     with open(trace_path, 'r') as file:
         for line in file:
             data = json.loads(line)
-            timestamp_ms = float(data["timestamp"])  # Already in milliseconds
+            timestamp_s = float(data["timestamp"])  # Already in seconds
             if start_time is not None and end_time is not None:
-                if timestamp_ms < start_time:
+                if timestamp_s < start_time:
                     continue
-                if timestamp_ms > end_time:
+                if timestamp_s > end_time:
                     break
-            data["timestamp"] = timestamp_ms / 1000 / trace_scale  # Convert to seconds and apply scale
+            data["timestamp"] = timestamp_s / trace_scale  # Apply scale (already in seconds)
             mooncake_data.append(data)
             if num_prompts is not None and len(mooncake_data) == num_prompts:
                 break
