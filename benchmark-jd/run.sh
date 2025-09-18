@@ -9,7 +9,7 @@ base_dir=benchmark-jd
 mkdir -p $base_dir/log/runtime
 mkdir -p $base_dir/log/result
 RUNTIME_LOG="$base_dir/log/runtime/runtime-${CURRENT_TIME}-sr-${sampling_ratio}.log"
-RESULT_FILE="$base_dir/log/result/result-${CURRENT_TIME}-sr-${sampling_ratio}.jsonl"
+RESULT_FILE="$base_dir/log/result/result-${CURRENT_TIME}-sr-${sampling_ratio}.json"
 
 # Preheat
 ./simple-online/run.sh
@@ -24,8 +24,8 @@ python utils/benchmark.py \
     --trace-start-time 50400000 \
     --trace-end-time 54000000 \
     --sampling-ratio $sampling_ratio \
-    --slo-ttft 1000 \
-    --slo-tpot 30 \
+    --slo-ttft 5000 \
+    --slo-tpot 40 \
     --output-file $RESULT_FILE \
     | tee "${RUNTIME_LOG}"
 

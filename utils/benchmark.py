@@ -269,6 +269,29 @@ async def benchmark(
     if pbar is not None:
         pbar.close()
 
+    # Collect per-request details
+    request_details = []
+    for i, (input_req, output) in enumerate(zip(input_requests, outputs)):
+        prompt, input_len, max_output_len, timestamp = input_req
+
+        # Calculate actual output length by tokenizing the generated text
+        actual_output_len = 0
+        # if output.success and output.generated_text:
+        #     actual_output_len = len(tokenizer.encode(output.generated_text, add_special_tokens=False))
+
+        request_detail = {
+            "request_id": i,
+            "timestamp": timestamp,
+            "latency_ms": output.latency * 1000 if output.success else None,
+            "input_length": input_len,
+            "max_output_length": max_output_len,
+            # "actual_output_length": actual_output_len,
+            "success": output.success,
+            "error": output.error if not output.success else None,
+            "ttft_ms": output.ttft * 1000 if output.success and output.ttft > 0 else None,
+        }
+        request_details.append(request_detail)
+
     # Calculate metrics
     benchmark_duration = time.perf_counter() - benchmark_start_time
     metrics, output_lens = calculate_metrics(
@@ -363,6 +386,7 @@ async def benchmark(
         "slo_ttft_violation_rate": metrics.slo_ttft_violation_rate,
         "slo_tpot_violation_rate": metrics.slo_tpot_violation_rate,
         "slo_ttft_or_tpot_violation_rate": metrics.slo_ttft_or_tpot_violation_rate,
+        "requests": request_details,
     }
 
 
