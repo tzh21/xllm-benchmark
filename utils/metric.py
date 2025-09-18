@@ -69,6 +69,7 @@ class BenchmarkMetrics:
     median_ttft_ms: float
     std_ttft_ms: float
     p99_ttft_ms: float
+    p90_ttft_ms: float
     mean_tpot_ms: float
     median_tpot_ms: float
     std_tpot_ms: float
@@ -78,10 +79,12 @@ class BenchmarkMetrics:
     median_itl_ms: float
     std_itl_ms: float
     p99_itl_ms: float
+    p90_itl_ms: float
     mean_e2e_latency_ms: float
     median_e2e_latency_ms: float
     std_e2e_latency_ms: float
     p99_e2e_latency_ms: float
+    p90_e2e_latency_ms: float
     concurrency: float
     slo_ttft_violation_rate: Optional[float] = None
     slo_tpot_violation_rate: Optional[float] = None
@@ -273,7 +276,7 @@ def sample_random_requests(
                     for j in range(input_lens[i])
                 ]
             )
-            input_requests.append((prompt, int(input_lens[i]), int(output_lens[i], -1.0)))
+            input_requests.append((prompt, int(input_lens[i]), int(output_lens[i]), -1.0))
 
     print(f"#Input tokens: {np.sum(input_lens)}")
     print(f"#Output tokens: {np.sum(output_lens)}")
@@ -390,13 +393,13 @@ def sample_trace_requests(
     with open(trace_path, 'r') as file:
         for line in file:
             data = json.loads(line)
-            timestamp = float(data["timestamp"]) / 1000
+            timestamp_ms = float(data["timestamp"])  # Already in milliseconds
             if start_time is not None and end_time is not None:
-                if timestamp < start_time:
+                if timestamp_ms < start_time:
                     continue
-                if timestamp > end_time:
+                if timestamp_ms > end_time:
                     break
-            data["timestamp"] = timestamp / trace_scale
+            data["timestamp"] = timestamp_ms / 1000 / trace_scale  # Convert to seconds and apply scale
             mooncake_data.append(data)
             if num_prompts is not None and len(mooncake_data) == num_prompts:
                 break
@@ -527,13 +530,17 @@ async def get_request(
             # The next request will be sent after the interval.
             await asyncio.sleep(interval)
     else:
-        start_time = time.perf_counter() + input_requests[0][3]
+        # Use relative timestamps to avoid long waits
+        base_timestamp = input_requests[0][3]  # First request timestamp as baseline
+        start_time = time.perf_counter()
         # If the input_requests has timestamp, then we need to wait until the timestamp.
         input_requests = iter(input_requests)
         for request in input_requests:
 
-            # Wait until the timestamp.
-            await asyncio.sleep(max(0, request[3] + start_time - time.perf_counter()))
+            # Wait based on relative time from the first request
+            relative_time = request[3] - base_timestamp
+            target_time = start_time + relative_time
+            await asyncio.sleep(max(0, target_time - time.perf_counter()))
             yield request
 
 
@@ -642,6 +649,7 @@ def calculate_metrics(
         median_ttft_ms=np.median(ttfts or 0) * 1000,
         std_ttft_ms=np.std(ttfts or 0) * 1000,
         p99_ttft_ms=np.percentile(ttfts or 0, 99) * 1000,
+        p90_ttft_ms=np.percentile(ttfts or 0, 90) * 1000,
         mean_tpot_ms=np.mean(tpots or 0) * 1000,
         median_tpot_ms=np.median(tpots or 0) * 1000,
         std_tpot_ms=np.std(tpots or 0) * 1000,
@@ -651,10 +659,12 @@ def calculate_metrics(
         median_itl_ms=np.median(itls or 0) * 1000,
         std_itl_ms=np.std(itls or 0) * 1000,
         p99_itl_ms=np.percentile(itls or 0, 99) * 1000,
+        p90_itl_ms=np.percentile(itls or 0, 90) * 1000,
         mean_e2e_latency_ms=np.mean(e2e_latencies) * 1000,
         median_e2e_latency_ms=np.median(e2e_latencies) * 1000,
         std_e2e_latency_ms=np.std(e2e_latencies) * 1000,
         p99_e2e_latency_ms=np.percentile(e2e_latencies, 99) * 1000,
+        p90_e2e_latency_ms=np.percentile(e2e_latencies, 90) * 1000,
         concurrency=np.sum(e2e_latencies) / dur_s,
         slo_ttft_violation_rate=slo_ttft_violation_rate,
         slo_tpot_violation_rate=slo_tpot_violation_rate,

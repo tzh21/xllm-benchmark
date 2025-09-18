@@ -11,6 +11,9 @@ mkdir -p $base_dir/log/result
 RUNTIME_LOG="$base_dir/log/runtime/runtime-${CURRENT_TIME}-sr-${sampling_ratio}.log"
 RESULT_FILE="$base_dir/log/result/result-${CURRENT_TIME}-sr-${sampling_ratio}.jsonl"
 
+# Preheat
+./simple-online/run.sh
+
 # Run benchmark using utils/benchmark.py
 python utils/benchmark.py \
     --base-url http://127.0.0.1:27712 \
@@ -18,9 +21,8 @@ python utils/benchmark.py \
     --dataset-path /export/home/tangzihan/xllm-base/datasets/online-datasets/ShareGPT_V3_unfiltered_cleaned_split.json \
     --trace-path /export/home/tangzihan/xllm-base/datasets/online-datasets/jd-online.jsonl \
     --model /export/home/tangzihan/modelscope/models/Qwen/Qwen2.5-7B-Instruct \
-    --trace-start-time 0 \
-    --trace-end-time 3600 \
-    --num-prompts 20 \
+    --trace-start-time 50400000 \
+    --trace-end-time 54000000 \
     --sampling-ratio $sampling_ratio \
     --slo-ttft 1000 \
     --slo-tpot 30 \

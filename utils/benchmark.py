@@ -34,7 +34,7 @@ from metric import (
     sample_trace_requests,
 )
 
-AIOHTTP_TIMEOUT = aiohttp.ClientTimeout(total=90)
+AIOHTTP_TIMEOUT = aiohttp.ClientTimeout(total=5400)
 
 
 def set_ulimit(target_soft_limit=65535):
@@ -144,8 +144,13 @@ async def async_request_xllm(
                     output.success = False
                     output.error = f"HTTP {response.status}: {await response.text()}"
         except asyncio.TimeoutError:
+            print(f"Request timeout - API URL: {request_func_input.api_url}, Model: {request_func_input.model}, "
+                  f"Prompt length: {request_func_input.prompt_len}, Output length: {request_func_input.output_len}, "
+                  f"LoRA: {request_func_input.lora_name}, Timestamp: {request_func_input.timestamp}, "
+                  f"Extra request body: {request_func_input.extra_request_body}")
             output.success = False
             output.error = "Request timeout"
+            sys.exit(1)
         except Exception as e:
             output.success = False
             output.error = str(e)
@@ -376,11 +381,14 @@ async def benchmark(
     print("{s:{c}^{n}}".format(s="End-to-End Latency", n=50, c="-"))
     print("{:<40} {:<10.2f}".format("Mean E2E Latency (ms):", metrics.mean_e2e_latency_ms))
     print("{:<40} {:<10.2f}".format("Median E2E Latency (ms):", metrics.median_e2e_latency_ms))
+    print("{:<40} {:<10.2f}".format("P99 E2E Latency (ms):", metrics.p99_e2e_latency_ms))
+    print("{:<40} {:<10.2f}".format("P90 E2E Latency (ms):", metrics.p90_e2e_latency_ms))
 
     print("{s:{c}^{n}}".format(s="Time to First Token", n=50, c="-"))
     print("{:<40} {:<10.2f}".format("Mean TTFT (ms):", metrics.mean_ttft_ms))
     print("{:<40} {:<10.2f}".format("Median TTFT (ms):", metrics.median_ttft_ms))
     print("{:<40} {:<10.2f}".format("P99 TTFT (ms):", metrics.p99_ttft_ms))
+    print("{:<40} {:<10.2f}".format("P90 TTFT (ms):", metrics.p90_ttft_ms))
 
     print("{s:{c}^{n}}".format(s="Time per Output Token (excl. 1st token)", n=50, c="-"))
     print("{:<40} {:<10.2f}".format("Mean TPOT (ms):", metrics.mean_tpot_ms))
@@ -392,6 +400,7 @@ async def benchmark(
     print("{:<40} {:<10.2f}".format("Mean ITL (ms):", metrics.mean_itl_ms))
     print("{:<40} {:<10.2f}".format("Median ITL (ms):", metrics.median_itl_ms))
     print("{:<40} {:<10.2f}".format("P99 ITL (ms):", metrics.p99_itl_ms))
+    print("{:<40} {:<10.2f}".format("P90 ITL (ms):", metrics.p90_itl_ms))
 
     if metrics.slo_ttft_violation_rate is not None or metrics.slo_tpot_violation_rate is not None:
         print("{s:{c}^{n}}".format(s="SLO Violation Rates", n=50, c="-"))
@@ -417,9 +426,12 @@ async def benchmark(
         "output_throughput": metrics.output_throughput,
         "mean_e2e_latency_ms": metrics.mean_e2e_latency_ms,
         "median_e2e_latency_ms": metrics.median_e2e_latency_ms,
+        "p99_e2e_latency_ms": metrics.p99_e2e_latency_ms,
+        "p90_e2e_latency_ms": metrics.p90_e2e_latency_ms,
         "mean_ttft_ms": metrics.mean_ttft_ms,
         "median_ttft_ms": metrics.median_ttft_ms,
         "p99_ttft_ms": metrics.p99_ttft_ms,
+        "p90_ttft_ms": metrics.p90_ttft_ms,
         "mean_tpot_ms": metrics.mean_tpot_ms,
         "median_tpot_ms": metrics.median_tpot_ms,
         "p99_tpot_ms": metrics.p99_tpot_ms,
@@ -427,6 +439,7 @@ async def benchmark(
         "mean_itl_ms": metrics.mean_itl_ms,
         "median_itl_ms": metrics.median_itl_ms,
         "p99_itl_ms": metrics.p99_itl_ms,
+        "p90_itl_ms": metrics.p90_itl_ms,
         "concurrency": metrics.concurrency,
         "slo_ttft_violation_rate": metrics.slo_ttft_violation_rate,
         "slo_tpot_violation_rate": metrics.slo_tpot_violation_rate,
@@ -690,8 +703,8 @@ def main():
 
     # Trace dataset arguments
     parser.add_argument("--trace-path", type=str, default="", help="Trace file path.")
-    parser.add_argument("--trace-start-time", type=float, default=None)
-    parser.add_argument("--trace-end-time", type=float, default=None)
+    parser.add_argument("--trace-start-time", type=float, default=None, help="Start time in milliseconds")
+    parser.add_argument("--trace-end-time", type=float, default=None, help="End time in milliseconds")
     parser.add_argument("--trace-scale", type=float, default=1)
     parser.add_argument("--sampling-ratio", type=float, default=1.0)
 
