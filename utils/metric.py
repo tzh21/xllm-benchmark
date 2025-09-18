@@ -377,8 +377,8 @@ def calculate_metrics(
             )
             retokenized_output_lens.append(retokenized_output_len)
             total_input += outputs[i].prompt_len
-            if output_len > 1:
-                tpots.append((outputs[i].latency - outputs[i].ttft) / (output_len - 1))
+            if output_len > 2:
+                tpots.append((outputs[i].latency - outputs[i].ttft) / (output_len - 2))
             itls += outputs[i].itl
             ttfts.append(outputs[i].ttft)
 
@@ -417,8 +417,8 @@ def calculate_metrics(
                     ttft_violates = slo_ttft_ms is not None and ttft_ms > slo_ttft_ms
                     tpot_violates = False
                     
-                    if slo_tpot_ms is not None and output_len > 1:
-                        tpot_ms = ((outputs[i].latency - outputs[i].ttft) / (output_len - 1)) * 1000
+                    if slo_tpot_ms is not None and output_len > 2:
+                        tpot_ms = ((outputs[i].latency - outputs[i].ttft) / (output_len - 2)) * 1000
                         tpot_violates = tpot_ms > slo_tpot_ms
                     
                     if ttft_violates:

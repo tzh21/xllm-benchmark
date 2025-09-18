@@ -94,6 +94,7 @@ async def async_request_xllm(
 
         generated_text = ""
         ttft = 0.0
+        token_count = 0
         st = time.perf_counter()
         most_recent_timestamp = st
 
@@ -118,10 +119,12 @@ async def async_request_xllm(
 
                                 if data["choices"][0].get("text"):
                                     timestamp = time.perf_counter()
-                                    if ttft == 0.0:
+                                    token_count += 1
+
+                                    if ttft == 0.0 and token_count >= 2:
                                         ttft = timestamp - st
                                         output.ttft = ttft
-                                    else:
+                                    elif token_count > 2:
                                         output.itl.append(timestamp - most_recent_timestamp)
 
                                     most_recent_timestamp = timestamp
