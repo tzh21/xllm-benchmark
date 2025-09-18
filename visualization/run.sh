@@ -8,6 +8,6 @@ python visualization/vis.py /export/home/tangzihan/xllm-base/datasets/online-dat
 # do
 #     echo $start_time $end_time
 #     python visualization/vis.py /export/home/tangzihan/xllm-base/datasets/online-datasets/jd-online.jsonl \
-#         --start-time $((start_hour * 3600000)) \
+#         --start-time $((start_hour * )) \
 #         --end-time $(((start_hour + 2) * 3600000))
 # done

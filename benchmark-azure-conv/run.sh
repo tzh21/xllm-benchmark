@@ -6,7 +6,7 @@ echo "Running benchmark at ${CURRENT_TIME}"
 xservice_port=${1:?}
 sampling_ratio=${2:?}
 
-base_dir=benchmark-jd
+base_dir=benchmark-azure-conv
 mkdir -p $base_dir/log/runtime
 mkdir -p $base_dir/log/result
 RUNTIME_LOG="$base_dir/log/runtime/runtime-${CURRENT_TIME}-sr-${sampling_ratio}.log"
@@ -20,10 +20,10 @@ python utils/benchmark.py \
     --base-url http://127.0.0.1:$xservice_port \
     --dataset-name trace \
     --dataset-path /export/home/tangzihan/xllm-base/datasets/online-datasets/ShareGPT_V3_unfiltered_cleaned_split.json \
-    --trace-path /export/home/tangzihan/xllm-base/datasets/online-datasets/jd-online.jsonl \
+    --trace-path /export/home/tangzihan/xllm-base/datasets/online-datasets/AzureLLMInferenceTrace_conv_1week.jsonl \
     --model /export/home/tangzihan/modelscope/models/Qwen/Qwen2.5-7B-Instruct \
-    --trace-start-time 50400000 \
-    --trace-end-time 54000000 \
+    --trace-start-time 144000 \
+    --trace-end-time 147600 \
     --sampling-ratio $sampling_ratio \
     --slo-ttft 5000 \
     --slo-tpot 40 \

@@ -149,13 +149,13 @@ def sample_trace_requests(
     with open(trace_path, 'r') as file:
         for line in file:
             data = json.loads(line)
-            timestamp_s = float(data["timestamp"])  # Already in seconds
+            timestamp_ms = float(data["timestamp"])  # Now in milliseconds
             if start_time is not None and end_time is not None:
-                if timestamp_s < start_time:
+                if timestamp_ms < start_time:
                     continue
-                if timestamp_s > end_time:
+                if timestamp_ms > end_time:
                     break
-            data["timestamp"] = timestamp_s / trace_scale  # Apply scale (already in seconds)
+            data["timestamp"] = timestamp_ms / trace_scale  # Apply scale (in milliseconds)
             mooncake_data.append(data)
             if num_prompts is not None and len(mooncake_data) == num_prompts:
                 break
@@ -338,14 +338,15 @@ async def get_request(
             await asyncio.sleep(interval)
     else:
         # Use relative timestamps to avoid long waits
-        base_timestamp = input_requests[0][3]  # First request timestamp as baseline
+        base_timestamp = input_requests[0][3]  # First request timestamp as baseline (in milliseconds)
         start_time = time.perf_counter()
         # If the input_requests has timestamp, then we need to wait until the timestamp.
         input_requests = iter(input_requests)
         for request in input_requests:
 
             # Wait based on relative time from the first request
-            relative_time = request[3] - base_timestamp
+            # Convert millisecond timestamps to seconds for timing calculations
+            relative_time = (request[3] - base_timestamp) / 1000.0
             target_time = start_time + relative_time
             await asyncio.sleep(max(0, target_time - time.perf_counter()))
             yield request
