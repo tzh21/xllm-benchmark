@@ -2,8 +2,8 @@
 
 set -e
 
-CURRENT_TIME=$(date +"%m%d-%H%M%S")
-echo "Running benchmark at ${CURRENT_TIME}"
+current_time=$(date +"%m%d-%H%M%S")
+echo "Running benchmark at ${current_time}"
 
 xservice_port=${1:?}; shift
 sampling_ratio=${1:?}; shift
@@ -16,17 +16,8 @@ mkdir -p $base_dir/log/result
 # Preheat
 ./simple-online/run.sh $xservice_port
 
-cleanup() {
-    echo "Stopping benchmark..."
-    kill $pid1 $pid2 2>/dev/null
-    wait $pid1 $pid2 2>/dev/null
-    echo "All benchmark processes stopped."
-    exit 1
-}
-trap cleanup SIGINT SIGTERM
+log_base=${current_time}-sr-${sampling_ratio}-qps-${qps}-baseline
 
-log_base=sr-${sampling_ratio}-qps-${qps}-${CURRENT_TIME}
-# Run benchmark using utils/benchmark.py
 python utils/benchmark.py \
     --base-url http://127.0.0.1:$xservice_port \
     --traffic-mode trace \
@@ -40,7 +31,6 @@ python utils/benchmark.py \
     --slo-tpot 40 \
     --output-file "$base_dir/log/result/$log_base-online.json" \
     | tee "$base_dir/log/runtime/$log_base-online.log" &
-pid1=$!
 
 python utils/benchmark.py \
     --base-url http://127.0.0.1:$xservice_port \
@@ -52,12 +42,10 @@ python utils/benchmark.py \
     --trace-end-time 54000000 \
     --slo-ttft 100000000 \
     --slo-tpot 100000000 \
-    --offline \
     --constant-rate $qps \
     --constant-duration 3600 \
     --output-file "$base_dir/log/result/$log_base-offline.json" \
     | tee "$base_dir/log/runtime/$log_base-offline.log" &
-pid2=$!
 
 wait
 

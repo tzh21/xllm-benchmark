@@ -1,20 +1,35 @@
-xservice_port=${1:?}; shift
+set -e
 
-ratios=(11 13 15)
-all_qps=(0.05 0.4 0.5)
-# ratios=(11 13 15)
-# all_qps=(0.1 0.2 0.3)
-# ratios=(6 8 10)
-# all_qps=(0.1 0.2 0.3)
-# ratios=(6 8 10)
-# all_qps=(0.1 0.2 0.3)
-# ratios=(5 7 9)
-# all_qps=(0.1 0.2 0.3)
-echo "Sampling ratios: ${ratios[@]}"
+trap "echo 'Exiting, killing child processes...'; kill 0" EXIT INT TERM
+
+xservice_port=${1:?}; shift
+mode=${1:?}; shift
+
+if [ $mode == "v1" ]; then
+    script=./benchmark-jd/v1-run.sh
+elif [ $mode == "v2" ]; then
+    script=./benchmark-jd/v2-run.sh
+else
+    echo "Unknown mode $mode"
+    exit 1
+fi
+
+# ratios=(12)
+# all_qps=(0.1 0.15 0.2)
+ratios=(12)
+all_qps=(0.3 0.4 0.5)
+# ratios=(12)
+# all_qps=(0.1 0.15 0.2)
+# ratios=(12)
+# all_qps=(0.1 0.15 0.2)
+# ratios=(12)
+# all_qps=(0.1 0.15 0.2)
+# ratios=(12)
+# all_qps=(0.1 0.15 0.2)
 
 for qps in ${all_qps[@]}; do
     for ratio in "${ratios[@]}"; do
         echo "Sampling ratio: $ratio; Offline QPS: $qps"
-        ./benchmark-jd/ooc-run.sh $xservice_port $ratio $qps
+        $script $xservice_port $ratio $qps
     done
 done
