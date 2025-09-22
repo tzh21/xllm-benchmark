@@ -1,18 +1,11 @@
-# 1 32
-# 1-8
-# 9-16
-# 17-24
-# 25-32
+set -e
 
-start=${1:?}
-end=${2:?}
-step=${3:?}
-xservice_port=${4:?}
+xservice_port=${1:?}; shift
 
-for ((ratio=$start; ratio<=$end; ratio+=$step))
-do
+ratios=("$@")
+echo "Sampling ratios: ${ratios[@]}"
+
+for ratio in "${ratios[@]}"; do
     echo "Sampling ratio: $ratio"
-    ./benchmark-jd/run.sh $xservice_port $ratio 
+    ./benchmark-jd/run.sh $xservice_port $ratio
 done
-
-sleep 10

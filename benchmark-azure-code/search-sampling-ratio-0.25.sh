@@ -20,11 +20,9 @@
 
 xservice_port=${1:?}
 
-shift
-ratios=("$@")
-echo "Sampling ratios: ${ratios[@]}"
+ratios=(0.25)
 
 for ratio in "${ratios[@]}"; do
     echo "Sampling ratio: $ratio"
-    ./benchmark-azure-conv/run.sh $xservice_port $ratio
+    ./benchmark-azure-code/run.sh $xservice_port $ratio
 done

@@ -15,19 +15,15 @@ RESULT_FILE="$base_dir/log/result/result-${CURRENT_TIME}-sr-${sampling_ratio}.js
 # Preheat
 ./simple-online/run.sh $xservice_port
 
-# conv 60
-# code 12
-# jd online 0.05
-
 # Run benchmark using utils/benchmark.py
 python utils/benchmark.py \
     --base-url http://127.0.0.1:$xservice_port \
     --dataset-name trace \
     --dataset-path /export/home/tangzihan/xllm-base/datasets/online-datasets/ShareGPT_V3_unfiltered_cleaned_split.json \
-    --trace-path /export/home/tangzihan/xllm-base/datasets/online-datasets/AzureLLMInferenceTrace_code_1week.jsonl \
+    --trace-path /export/home/tangzihan/xllm-base/datasets/online-datasets/AzureLLMInferenceTrace_code_extracted_136800000_140400000.jsonl \
     --model /export/home/tangzihan/modelscope/models/Qwen/Qwen2.5-7B-Instruct \
-    --trace-start-time 136800 \
-    --trace-end-time 140400 \
+    --trace-start-time 136800000 \
+    --trace-end-time 140400000 \
     --sampling-ratio $sampling_ratio \
     --slo-ttft 5000 \
     --slo-tpot 40 \

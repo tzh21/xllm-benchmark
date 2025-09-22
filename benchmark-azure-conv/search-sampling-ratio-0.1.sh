@@ -20,9 +20,7 @@
 
 xservice_port=${1:?}
 
-shift
-ratios=("$@")
-echo "Sampling ratios: ${ratios[@]}"
+ratios=(0.1)
 
 for ratio in "${ratios[@]}"; do
     echo "Sampling ratio: $ratio"

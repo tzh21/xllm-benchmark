@@ -1,6 +1,6 @@
 """
 Unified benchmarking script for xLLM inference engine.
-Supports trace-based and arxiv-summary datasets.
+Supports trace-based datasets.
 """
 
 import argparse
@@ -29,10 +29,10 @@ from metric import (
     calculate_metrics,
     get_request,
     sample_trace_requests,
-    load_arxiv_summary_dataset,
+    sample_constant_requests,
 )
 
-AIOHTTP_TIMEOUT = aiohttp.ClientTimeout(total=5400)
+AIOHTTP_TIMEOUT = aiohttp.ClientTimeout(total=3600)
 
 
 def set_ulimit(target_soft_limit=65535):
@@ -66,9 +66,11 @@ def parse_request_rate_range(request_rate_range: str) -> List[int]:
 
 async def async_request_xllm(
     request_func_input: RequestFuncInput,
+    tokenizer: PreTrainedTokenizerBase,
     pbar: Optional[tqdm] = None,
     disable_stream: bool = False,
     disable_ignore_eos: bool = False,
+    offline: bool = False,
 ) -> RequestFuncOutput:
     """Send async request to xLLM backend"""
     api_url = request_func_input.api_url
@@ -85,6 +87,7 @@ async def async_request_xllm(
             "max_tokens": request_func_input.output_len,
             "stream": not disable_stream,
             "ignore_eos": not disable_ignore_eos,
+            "offline": offline,
             **request_func_input.extra_request_body,
         }
         headers = {"Authorization": f"Bearer {os.environ.get('OPENAI_API_KEY', '')}"}
@@ -96,7 +99,6 @@ async def async_request_xllm(
         ttft = 0.0
         token_count = 0
         st = time.perf_counter()
-        most_recent_timestamp = st
 
         try:
             async with session.post(url=api_url, json=payload, headers=headers) as response:
@@ -119,28 +121,27 @@ async def async_request_xllm(
 
                                 if data["choices"][0].get("text"):
                                     timestamp = time.perf_counter()
+                                    if token_count < 2:
+                                        output.ttft = timestamp - st
                                     token_count += 1
-
-                                    if ttft == 0.0 and token_count >= 2:
-                                        ttft = timestamp - st
-                                        output.ttft = ttft
-                                    elif token_count > 2:
-                                        output.itl.append(timestamp - most_recent_timestamp)
-
-                                    most_recent_timestamp = timestamp
-                                    generated_text += data["choices"][0]["text"]
+                                    chunk_text = data["choices"][0]["text"]
+                                    generated_text += chunk_text
                     else:
-                        # Non-streaming response
-                        data = await response.json()
-                        generated_text = data["choices"][0]["text"]
-                        latency = time.perf_counter() - st
-                        output.ttft = latency
+                        assert False # Non-streaming response not supported
+                        # data = await response.json()
+                        # generated_text = data["choices"][0]["text"]
+                        # latency = time.perf_counter() - st
+                        # output.ttft = latency
 
                     output.generated_text = generated_text
                     output.success = True
                     output.latency = latency
-                    output.output_len = request_func_input.output_len
+                    output.output_len = request_func_input.output_len  # Use actual token count instead of expected length
                     output.timestamp = request_func_input.timestamp
+                    if token_count > 2:
+                        output.tpot = (output.latency - output.ttft) / (output.output_len - 2)
+                    else:
+                        output.tpot = 0.0
                 else:
                     output.success = False
                     output.error = f"HTTP {response.status}: {await response.text()}"
@@ -151,7 +152,7 @@ async def async_request_xllm(
                   f"Extra request body: {request_func_input.extra_request_body}")
             output.success = False
             output.error = "Request timeout"
-            sys.exit(1)
+            # sys.exit(1)
         except Exception as e:
             output.success = False
             output.error = str(e)
@@ -163,9 +164,9 @@ async def async_request_xllm(
 
 def get_dataset(args, tokenizer):
     """Load dataset based on specified type"""
-    if args.dataset_name == "trace":
+    if args.traffic_mode == "trace":
         return sample_trace_requests(
-            dataset_path=args.dataset_path,
+            prompt_path=args.prompt_path,
             trace_path=args.trace_path,
             tokenizer=tokenizer,
             num_prompts=args.num_prompts,
@@ -174,10 +175,20 @@ def get_dataset(args, tokenizer):
             end_time=args.trace_end_time,
             sampling_ratio=args.sampling_ratio,
         )
-    elif args.dataset_name == "arxiv-summary":
-        return load_arxiv_summary_dataset(args, tokenizer)
+    elif args.traffic_mode == "constant":
+        return sample_constant_requests(
+            prompt_path=args.prompt_path,
+            trace_path=args.trace_path,
+            tokenizer=tokenizer,
+            num_prompts=args.num_prompts,
+            trace_scale=args.trace_scale,
+            start_time=args.trace_start_time,
+            end_time=args.trace_end_time,
+            constant_rate=args.constant_rate,
+            constant_duration=args.constant_duration,
+        )
     else:
-        raise ValueError(f"Unknown dataset: {args.dataset_name}")
+        raise ValueError(f"Unknown traffic mode: {args.traffic_mode}")
 
 
 async def benchmark(
@@ -194,7 +205,9 @@ async def benchmark(
     slo_ttft: float,
     slo_tpot: float,
     extra_request_body: Dict[str, Any],
+    args: argparse.Namespace,
     profile: bool = False,
+    offline: bool = False,
 ):
     """Run benchmark with specified configuration"""
 
@@ -205,16 +218,20 @@ async def benchmark(
         if semaphore is None:
             return await async_request_xllm(
                 request_func_input=request_func_input,
+                tokenizer=tokenizer,
                 pbar=pbar,
                 disable_stream=disable_stream,
                 disable_ignore_eos=disable_ignore_eos,
+                offline=offline,
             )
         async with semaphore:
             return await async_request_xllm(
                 request_func_input=request_func_input,
+                tokenizer=tokenizer,
                 pbar=pbar,
                 disable_stream=disable_stream,
                 disable_ignore_eos=disable_ignore_eos,
+                offline=offline,
             )
 
     # Warmup test
@@ -232,8 +249,10 @@ async def benchmark(
 
     test_output = await async_request_xllm(
         request_func_input=test_input,
+        tokenizer=tokenizer,
         disable_stream=disable_stream,
         disable_ignore_eos=disable_ignore_eos,
+        offline=offline,
     )
 
     if not test_output.success:
@@ -277,21 +296,16 @@ async def benchmark(
     for i, (input_req, output) in enumerate(zip(input_requests, outputs)):
         prompt, input_len, max_output_len, timestamp = input_req
 
-        # Calculate actual output length by tokenizing the generated text
-        actual_output_len = 0
-        # if output.success and output.generated_text:
-        #     actual_output_len = len(tokenizer.encode(output.generated_text, add_special_tokens=False))
-
         request_detail = {
             "request_id": i,
             "timestamp": timestamp,
             "latency_ms": output.latency * 1000 if output.success else None,
-            "input_length": input_len,
-            "max_output_length": max_output_len,
-            # "actual_output_length": actual_output_len,
+            "input_length": output.prompt_len,
+            "output_length": output.output_len,
             "success": output.success,
             "error": output.error if not output.success else None,
-            "ttft_ms": output.ttft * 1000 if output.success and output.ttft > 0 else None,
+            "ttft_ms": output.ttft * 1000 if output.success and output.ttft >= 0 else None,
+            "tpot_ms": output.tpot * 1000 if output.success and output.tpot >= 0 else None, 
         }
         request_details.append(request_detail)
 
@@ -341,12 +355,6 @@ async def benchmark(
     print("{:<40} {:<10.2f}".format("P99 TPOT (ms):", metrics.p99_tpot_ms))
     print("{:<40} {:<10.2f}".format("P90 TPOT (ms):", metrics.p90_tpot_ms))
 
-    print("{s:{c}^{n}}".format(s="Inter-token Latency", n=50, c="-"))
-    print("{:<40} {:<10.2f}".format("Mean ITL (ms):", metrics.mean_itl_ms))
-    print("{:<40} {:<10.2f}".format("Median ITL (ms):", metrics.median_itl_ms))
-    print("{:<40} {:<10.2f}".format("P99 ITL (ms):", metrics.p99_itl_ms))
-    print("{:<40} {:<10.2f}".format("P90 ITL (ms):", metrics.p90_itl_ms))
-
     if metrics.slo_ttft_violation_rate is not None or metrics.slo_tpot_violation_rate is not None:
         print("{s:{c}^{n}}".format(s="SLO Violation Rates", n=50, c="-"))
         if metrics.slo_ttft_violation_rate is not None:
@@ -363,6 +371,8 @@ async def benchmark(
         "request_rate": request_rate,
         "max_concurrency": max_concurrency,
         "duration": benchmark_duration,
+        "sampling_ratio": args.sampling_ratio,
+        "sent_requests": len(input_requests),
         "completed": metrics.completed,
         "total_input_tokens": metrics.total_input,
         "total_output_tokens": metrics.total_output,
@@ -381,14 +391,11 @@ async def benchmark(
         "median_tpot_ms": metrics.median_tpot_ms,
         "p99_tpot_ms": metrics.p99_tpot_ms,
         "p90_tpot_ms": metrics.p90_tpot_ms,
-        "mean_itl_ms": metrics.mean_itl_ms,
-        "median_itl_ms": metrics.median_itl_ms,
-        "p99_itl_ms": metrics.p99_itl_ms,
-        "p90_itl_ms": metrics.p90_itl_ms,
         "concurrency": metrics.concurrency,
         "slo_ttft_violation_rate": metrics.slo_ttft_violation_rate,
         "slo_tpot_violation_rate": metrics.slo_tpot_violation_rate,
         "slo_ttft_or_tpot_violation_rate": metrics.slo_ttft_or_tpot_violation_rate,
+        "args": str(args),
         "requests": request_details,
     }
 
@@ -454,7 +461,9 @@ def run_benchmark(args):
                 slo_ttft=args.slo_ttft,
                 slo_tpot=args.slo_tpot,
                 extra_request_body=extra_request_body,
+                args=args,
                 profile=args.profile,
+                offline=args.offline,
             )
         )
         save_results(args, result)
@@ -477,7 +486,9 @@ def run_benchmark(args):
                     slo_ttft=args.slo_ttft,
                     slo_tpot=args.slo_tpot,
                     extra_request_body=extra_request_body,
+                    args=args,
                     profile=args.profile,
+                    offline=args.offline,
                 )
             )
             result["request_rate"] = rate
@@ -495,15 +506,13 @@ def save_results(args, result):
         # Handle num_prompts=None for file naming
         prompt_count = args.num_prompts if args.num_prompts is not None else "all"
 
-        if args.dataset_name == "trace":
-            output_file = f"results/xllm_{now}_{prompt_count}_{args.dataset_name}_{args.trace_scale}.jsonl"
-        elif args.dataset_name == "arxiv-summary":
-            output_file = f"results/xllm_{now}_{prompt_count}_arxiv-summary.jsonl"
+        if args.traffic_mode == "trace":
+            output_file = f"results/xllm_{now}_{prompt_count}_{args.traffic_mode}_{args.trace_scale}.jsonl"
         else:
-            output_file = f"results/xllm_{now}_{prompt_count}_{args.dataset_name}.jsonl"
+            output_file = f"results/xllm_{now}_{prompt_count}_{args.traffic_mode}.jsonl"
 
     # Add dataset info to result
-    result["dataset_name"] = args.dataset_name
+    result["traffic_mode"] = args.traffic_mode
     result["num_prompts"] = args.num_prompts
 
     with open(output_file, "a") as f:
@@ -533,16 +542,16 @@ def main():
         help="Name or path of the tokenizer. If not set, uses the model.",
     )
 
-    # Dataset arguments
+    # Traffic mode arguments
     parser.add_argument(
-        "--dataset-name",
+        "--traffic-mode",
         type=str,
         default="trace",
-        choices=["trace", "arxiv-summary"],
-        help="Name of the dataset to benchmark on.",
+        choices=["trace", "constant"],
+        help="Traffic mode to use for benchmarking. 'trace' uses timestamps from trace file, 'constant' sends requests at constant rate.",
     )
     parser.add_argument(
-        "--dataset-path", type=str, default="", help="Path to the dataset."
+        "--prompt-path", type=str, default="", help="Path to the prompt dataset."
     )
     parser.add_argument(
         "--num-prompts",
@@ -588,13 +597,13 @@ def main():
     parser.add_argument(
         "--slo-ttft",
         type=float,
-        default=1000,
+        default=5000,
         help="Service Level Objective for TTFT in milliseconds.",
     )
     parser.add_argument(
         "--slo-tpot",
         type=float,
-        default=30,
+        default=40,
         help="Service Level Objective for TPOT in milliseconds.",
     )
 
@@ -605,38 +614,6 @@ def main():
     parser.add_argument("--trace-end-time", type=float, default=None, help="End time in milliseconds")
     parser.add_argument("--trace-scale", type=float, default=1)
     parser.add_argument("--sampling-ratio", type=float, default=1.0)
-
-    # Arxiv-summary dataset arguments
-    parser.add_argument(
-        "--arxiv-summary-data-dir",
-        type=str,
-        default="/export/home/tangzihan/xllm/arxiv-summary-dataset/arxiv-summarization/section/",
-        help="Directory containing arxiv-summary dataset parquet files.",
-    )
-    parser.add_argument(
-        "--arxiv-summary-max-files",
-        type=int,
-        default=None,
-        help="Maximum number of parquet files to load.",
-    )
-    parser.add_argument(
-        "--arxiv-summary-min-length",
-        type=int,
-        default=100,
-        help="Minimum prompt length in tokens.",
-    )
-    parser.add_argument(
-        "--arxiv-summary-max-length",
-        type=int,
-        default=2048,
-        help="Maximum prompt length in tokens.",
-    )
-    parser.add_argument(
-        "--arxiv-summary-output-length",
-        type=int,
-        default=512,
-        help="Output length for arxiv-summary dataset.",
-    )
 
     # Multi-rate testing
     parser.add_argument(
@@ -661,6 +638,23 @@ def main():
         "--profile",
         action="store_true",
         help="Enable profiling (requires server support).",
+    )
+    parser.add_argument(
+        "--offline",
+        action="store_true",
+        help="Set offline field to true in requests.",
+    )
+    parser.add_argument(
+        "--constant-rate",
+        type=float,
+        default=None,
+        help="Request rate (requests per second) for constant traffic mode.",
+    )
+    parser.add_argument(
+        "--constant-duration",
+        type=float,
+        default=None,
+        help="Total duration (in seconds) for sending requests in constant mode. If not set, uses all available requests.",
     )
 
     args = parser.parse_args()

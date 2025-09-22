@@ -25,8 +25,8 @@ def load_trace_data(
 
     Args:
         file_path: Path to the JSONL file
-        start_time: Filter requests after this timestamp (seconds)
-        end_time: Filter requests before this timestamp (seconds)
+        start_time: Filter requests after this timestamp (milliseconds)
+        end_time: Filter requests before this timestamp (milliseconds)
         num_requests: Maximum number of requests to load
 
     Returns:
@@ -191,10 +191,10 @@ def generate_output_filename(args) -> str:
     filename_parts = [trace_filename]
 
     if args.start_time is not None:
-        filename_parts.append(f"start{int(args.start_time)}s")
+        filename_parts.append(f"start{int(args.start_time)}ms")
 
     if args.end_time is not None:
-        filename_parts.append(f"end{int(args.end_time)}s")
+        filename_parts.append(f"end{int(args.end_time)}ms")
 
     if args.num_requests is not None:
         filename_parts.append(f"n{args.num_requests}")
@@ -267,14 +267,14 @@ def main():
         '--start-time',
         type=float,
         default=None,
-        help='Start time filter (seconds since epoch)'
+        help='Start time filter (milliseconds since epoch)'
     )
 
     parser.add_argument(
         '--end-time',
         type=float,
         default=None,
-        help='End time filter (seconds since epoch)'
+        help='End time filter (milliseconds since epoch)'
     )
 
     parser.add_argument(
@@ -316,20 +316,17 @@ def main():
     print(f"Loading trace data from: {args.trace_file}")
 
     if args.start_time:
-        print(f"  Filter: start_time >= {args.start_time} seconds")
+        print(f"  Filter: start_time >= {args.start_time} milliseconds")
     if args.end_time:
-        print(f"  Filter: end_time <= {args.end_time} seconds")
+        print(f"  Filter: end_time <= {args.end_time} milliseconds")
     if args.num_requests:
         print(f"  Filter: max {args.num_requests} requests")
 
-    # Convert seconds to milliseconds for internal processing
-    start_time_ms = args.start_time * 1000 if args.start_time is not None else None
-    end_time_ms = args.end_time * 1000 if args.end_time is not None else None
-
+    # Use milliseconds directly (no conversion needed)
     data = load_trace_data(
         args.trace_file,
-        start_time=start_time_ms,
-        end_time=end_time_ms,
+        start_time=args.start_time,
+        end_time=args.end_time,
         num_requests=args.num_requests
     )
 

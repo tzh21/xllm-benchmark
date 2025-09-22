@@ -46,7 +46,7 @@ class RequestFuncOutput:
     success: bool = False
     latency: float = 0.0
     ttft: float = 0.0  # Time to first token
-    itl: List[float] = field(default_factory=list)  # List of inter-token latencies
+    tpot: float = 0.0
     prompt_len: int = 0
     error: str = ""
     output_len: int = 0
@@ -75,11 +75,6 @@ class BenchmarkMetrics:
     std_tpot_ms: float
     p99_tpot_ms: float
     p90_tpot_ms: float
-    mean_itl_ms: float
-    median_itl_ms: float
-    std_itl_ms: float
-    p99_itl_ms: float
-    p90_itl_ms: float
     mean_e2e_latency_ms: float
     median_e2e_latency_ms: float
     std_e2e_latency_ms: float
@@ -92,49 +87,16 @@ class BenchmarkMetrics:
     slo_ttft_or_tpot_violation_rate: Optional[float] = None
 
 
-SHAREGPT_URL = "https://huggingface.co/datasets/anon8231489123/ShareGPT_Vicuna_unfiltered/resolve/main/ShareGPT_V3_unfiltered_cleaned_split.json"
 
 
 def interpolate_timestamp(start, end):
     return random.uniform(start, end)
 
 
-def download_and_cache_file(url: str, filename: Optional[str] = None):
-    """Read and cache a file from a url."""
-    if filename is None:
-        filename = os.path.join("/tmp", url.split("/")[-1])
-
-    # Check if the cache file already exists
-    if os.path.exists(filename):
-        return filename
-
-    print(f"Downloading from {url} to {filename}")
-
-    # Stream the response to show the progress bar
-    response = requests.get(url, stream=True)
-    response.raise_for_status()  # Check for request errors
-
-    # Total size of the file in bytes
-    total_size = int(response.headers.get("content-length", 0))
-    chunk_size = 1024  # Download in chunks of 1KB
-
-    # Use tqdm to display the progress bar
-    with open(filename, "wb") as f, tqdm(
-        desc=filename,
-        total=total_size,
-        unit="B",
-        unit_scale=True,
-        unit_divisor=1024,
-    ) as bar:
-        for chunk in response.iter_content(chunk_size=chunk_size):
-            f.write(chunk)
-            bar.update(len(chunk))
-
-    return filename
 
 
 def sample_trace_requests(
-    dataset_path: str,
+    prompt_path: str,
     trace_path: str,
     tokenizer: PreTrainedTokenizerBase,
     num_prompts: Optional[int] = None,
@@ -189,10 +151,10 @@ def sample_trace_requests(
 
     print(f"Generating {final_prompt_count} prompts from trace data")
 
-    if not os.path.isfile(dataset_path):
-        dataset_path = download_and_cache_file(SHAREGPT_URL)
+    if not os.path.isfile(prompt_path):
+        raise FileNotFoundError(f"Prompt file not found: {prompt_path}")
 
-    with open(dataset_path) as f:
+    with open(prompt_path) as f:
         dataset = json.load(f)
         dataset = [data for data in dataset if len(data["conversations"]) >= 2]
         dataset = [
@@ -214,7 +176,7 @@ def sample_trace_requests(
 
         # Tokenize the prompts and completions.
         prompt = data[0]
-        prompt_token_ids = tokenizer.encode(prompt)
+        prompt_token_ids = tokenizer.encode(prompt, add_special_tokens=True)
         prompt_len = len(prompt_token_ids)
 
         # Skip empty prompt and try next one
@@ -225,13 +187,13 @@ def sample_trace_requests(
             else:
                 data = dataset[i]
             prompt = data[0]
-            prompt_token_ids = tokenizer.encode(prompt)
+            prompt_token_ids = tokenizer.encode(prompt, add_special_tokens=True)
             prompt_len = len(prompt_token_ids)
 
         # If still empty, use a default prompt
         if prompt_len == 0:
             prompt = "Hello"
-            prompt_token_ids = tokenizer.encode(prompt)
+            prompt_token_ids = tokenizer.encode(prompt, add_special_tokens=True)
             prompt_len = len(prompt_token_ids)
 
         input_len = int(trace_entry["input_length"])
@@ -239,7 +201,6 @@ def sample_trace_requests(
 
         # Apply safety limits to prevent excessive token sequences
         if input_len > max_token_limit:
-            # print(f"Warning: Clamping input_len from {input_len} to {max_token_limit} for entry {i}")
             input_len = max_token_limit
 
         if prompt_len > input_len:
@@ -248,16 +209,7 @@ def sample_trace_requests(
             ratio = (input_len + prompt_len - 1) // prompt_len
             input_ids = (prompt_token_ids * ratio)[: input_len]
 
-        # Additional safety check for token sequence length
-        # if len(input_ids) > max_token_limit:
-            # print(f"Warning: Truncating token sequence from {len(input_ids)} to {max_token_limit} for entry {i}")
-            # input_ids = input_ids[:max_token_limit]
-
-        # Decode with progress indicator for large sequences
-        # if len(input_ids) > 4000:
-        #     print(f"Decoding large sequence: {len(input_ids)} tokens for entry {i}")
-
-        prompt = tokenizer.decode(input_ids)
+        prompt = tokenizer.decode(input_ids, skip_special_tokens=True)
         input_requests.append((prompt, input_len, output_len, trace_entry["timestamp"]))
 
         # Progress indicator
@@ -267,55 +219,120 @@ def sample_trace_requests(
     return input_requests
 
 
-def load_arxiv_summary_dataset(args, tokenizer):
-    """Load arxiv-summary dataset from parquet files"""
-    data_path = Path(args.arxiv_summary_data_dir)
-    if not data_path.exists():
-        raise ValueError(f"Data directory does not exist: {args.arxiv_summary_data_dir}")
+def sample_constant_requests(
+    prompt_path: str,
+    trace_path: str,
+    tokenizer: PreTrainedTokenizerBase,
+    num_prompts: Optional[int] = None,
+    trace_scale: float = 1.0,
+    start_time: Optional[float] = None,
+    end_time: Optional[float] = None,
+    constant_rate: float = 1.0,
+    constant_duration: Optional[float] = None,
+) -> List[Tuple[str, int, int, float]]:
+    """Sample requests from trace file but use constant timestamps for constant rate sending"""
 
-    parquet_files = list(data_path.glob("*.parquet"))
-    if args.arxiv_summary_max_files:
-        parquet_files = parquet_files[:args.arxiv_summary_max_files]
-
-    print(f"Loading {len(parquet_files)} parquet files from {args.arxiv_summary_data_dir}")
-
-    all_texts = []
-    for file_path in parquet_files:
-        df = pd.read_parquet(file_path)
-
-        # Find text column
-        text_columns = ['text', 'article', 'content']
-        for col in text_columns:
-            if col in df.columns:
-                all_texts.extend(df[col].tolist())
+    # Load the dataset from trace file, num_prompts controls how many entries to read
+    mooncake_data = []
+    with open(trace_path, 'r') as file:
+        for line in file:
+            data = json.loads(line)
+            timestamp_ms = float(data["timestamp"])  # Now in milliseconds
+            if start_time is not None and end_time is not None:
+                if timestamp_ms < start_time:
+                    continue
+                if timestamp_ms > end_time:
+                    break
+            mooncake_data.append(data)
+            if num_prompts is not None and len(mooncake_data) == num_prompts:
                 break
+
+    # Use all mooncake_data entries to generate prompts
+    final_prompt_count = len(mooncake_data)
+    if final_prompt_count == 0:
+        print("Warning: No trace data available to generate prompts")
+        return []
+
+    # Limit requests based on duration if specified
+    if constant_duration is not None:
+        max_requests_by_duration = int(constant_rate * constant_duration)
+        if max_requests_by_duration < final_prompt_count:
+            final_prompt_count = max_requests_by_duration
+            mooncake_data = mooncake_data[:final_prompt_count]
+            print(f"Limited to {final_prompt_count} requests based on duration {constant_duration}s at rate {constant_rate} req/s")
+
+    print(f"Generating {final_prompt_count} constant rate requests from trace data")
+
+    if not os.path.isfile(prompt_path):
+        raise FileNotFoundError(f"Prompt file not found: {prompt_path}")
+
+    with open(prompt_path) as f:
+        dataset = json.load(f)
+        dataset = [data for data in dataset if len(data["conversations"]) >= 2]
+        dataset = [
+            (data["conversations"][0]["value"], data["conversations"][1]["value"])
+            for data in dataset
+        ]
+    random.shuffle(dataset)
+
+    input_requests: List[Tuple[str, int, int, float]] = []
+    max_token_limit = 8192  # Safety limit to prevent excessive token sequences
+
+    for i, trace_entry in enumerate(mooncake_data):
+        # Find a suitable prompt from the dataset
+        if i >= len(dataset):
+            # If we've exhausted the dataset, cycle back to the beginning
+            data = dataset[i % len(dataset)]
         else:
-            # Use first string column
-            text_cols = [col for col in df.columns if df[col].dtype == 'object']
-            if text_cols:
-                all_texts.extend(df[text_cols[0]].tolist())
+            data = dataset[i]
 
-    print(f"Loaded {len(all_texts)} text samples")
+        # Tokenize the prompts and completions.
+        prompt = data[0]
+        prompt_token_ids = tokenizer.encode(prompt, add_special_tokens=True)
+        prompt_len = len(prompt_token_ids)
 
-    # Create prompts by randomly truncating texts
-    num_prompts = min(args.num_prompts, len(all_texts))
-    selected_texts = random.sample(all_texts, num_prompts)
+        # Skip empty prompt and try next one
+        while prompt_len == 0 and i < len(dataset):
+            i += 1
+            if i >= len(dataset):
+                data = dataset[i % len(dataset)]
+            else:
+                data = dataset[i]
+            prompt = data[0]
+            prompt_token_ids = tokenizer.encode(prompt, add_special_tokens=True)
+            prompt_len = len(prompt_token_ids)
 
-    prompts = []
-    for text in selected_texts:
-        tokens = tokenizer.encode(text, add_special_tokens=False)
+        # If still empty, use a default prompt
+        if prompt_len == 0:
+            prompt = "Hello"
+            prompt_token_ids = tokenizer.encode(prompt, add_special_tokens=True)
+            prompt_len = len(prompt_token_ids)
 
-        if len(tokens) < args.arxiv_summary_min_length:
-            continue
+        input_len = int(trace_entry["input_length"])
+        output_len = int(trace_entry["output_length"])
 
-        if args.arxiv_summary_max_length and len(tokens) > args.arxiv_summary_max_length:
-            start_idx = random.randint(0, len(tokens) - args.arxiv_summary_max_length)
-            tokens = tokens[start_idx:start_idx + args.arxiv_summary_max_length]
+        # Apply safety limits to prevent excessive token sequences
+        if input_len > max_token_limit:
+            input_len = max_token_limit
 
-        prompt_text = tokenizer.decode(tokens, skip_special_tokens=True)
-        prompts.append((prompt_text, len(tokens), args.arxiv_summary_output_length, -1.0))
+        if prompt_len > input_len:
+            input_ids = prompt_token_ids[: input_len]
+        else:
+            ratio = (input_len + prompt_len - 1) // prompt_len
+            input_ids = (prompt_token_ids * ratio)[: input_len]
 
-    return prompts
+        prompt = tokenizer.decode(input_ids, skip_special_tokens=True)
+        # Generate timestamp based on constant rate (in milliseconds)
+        # Interval between requests in seconds = 1.0 / constant_rate
+        # Convert to milliseconds for consistency with trace mode
+        timestamp_ms = i * (1000.0 / constant_rate)
+        input_requests.append((prompt, input_len, output_len, timestamp_ms))
+
+        # Progress indicator
+        if (i + 1) % 1000 == 0:
+            print(f"Processed {i + 1}/{final_prompt_count} requests...")
+
+    return input_requests
 
 
 async def get_request(
@@ -365,7 +382,6 @@ def calculate_metrics(
     retokenized_output_lens: List[int] = []
     total_input = 0
     completed = 0
-    itls: List[float] = []
     tpots: List[float] = []
     ttfts: List[float] = []
     e2e_latencies: List[float] = []
@@ -374,13 +390,11 @@ def calculate_metrics(
             output_len = outputs[i].output_len
             output_lens.append(output_len)
             retokenized_output_len = len(
-                tokenizer.encode(outputs[i].generated_text, add_special_tokens=False)
+                tokenizer.encode(outputs[i].generated_text, add_special_tokens=True)
             )
             retokenized_output_lens.append(retokenized_output_len)
             total_input += outputs[i].prompt_len
-            if output_len > 2:
-                tpots.append((outputs[i].latency - outputs[i].ttft) / (output_len - 2))
-            itls += outputs[i].itl
+            tpots.append(outputs[i].tpot)
             ttfts.append(outputs[i].ttft)
 
             e2e_latencies.append(outputs[i].latency)
@@ -463,11 +477,6 @@ def calculate_metrics(
         std_tpot_ms=np.std(tpots or 0) * 1000,
         p99_tpot_ms=np.percentile(tpots or 0, 99) * 1000,
         p90_tpot_ms=np.percentile(tpots or 0, 90) * 1000,
-        mean_itl_ms=np.mean(itls or 0) * 1000,
-        median_itl_ms=np.median(itls or 0) * 1000,
-        std_itl_ms=np.std(itls or 0) * 1000,
-        p99_itl_ms=np.percentile(itls or 0, 99) * 1000,
-        p90_itl_ms=np.percentile(itls or 0, 90) * 1000,
         mean_e2e_latency_ms=np.mean(e2e_latencies) * 1000,
         median_e2e_latency_ms=np.median(e2e_latencies) * 1000,
         std_e2e_latency_ms=np.std(e2e_latencies) * 1000,

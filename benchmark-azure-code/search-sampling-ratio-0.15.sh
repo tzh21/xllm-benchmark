@@ -24,7 +24,7 @@ shift
 ratios=("$@")
 echo "Sampling ratios: ${ratios[@]}"
 
-for ratio in "${ratios[@]}"; do
-    echo "Sampling ratio: $ratio"
-    ./benchmark-azure-conv/run.sh $xservice_port $ratio
-done
+# for ratio in "${ratios[@]}"; do
+#     echo "Sampling ratio: $ratio"
+#     ./benchmark-azure-code/run.sh $xservice_port $ratio
+# done

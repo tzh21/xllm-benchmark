@@ -18,12 +18,12 @@ RESULT_FILE="$base_dir/log/result/result-${CURRENT_TIME}-sr-${sampling_ratio}.js
 # Run benchmark using utils/benchmark.py
 python utils/benchmark.py \
     --base-url http://127.0.0.1:$xservice_port \
-    --dataset-name trace \
+    --traffic-mode trace \
     --dataset-path /export/home/tangzihan/xllm-base/datasets/online-datasets/ShareGPT_V3_unfiltered_cleaned_split.json \
-    --trace-path /export/home/tangzihan/xllm-base/datasets/online-datasets/AzureLLMInferenceTrace_conv_1week.jsonl \
+    --trace-path /export/home/tangzihan/xllm-base/datasets/online-datasets/AzureLLMInferenceTrace_conv_extracted_144000000_147600000.jsonl \
     --model /export/home/tangzihan/modelscope/models/Qwen/Qwen2.5-7B-Instruct \
-    --trace-start-time 144000 \
-    --trace-end-time 147600 \
+    --trace-start-time 144000000 \
+    --trace-end-time 147600000 \
     --sampling-ratio $sampling_ratio \
     --slo-ttft 5000 \
     --slo-tpot 40 \
