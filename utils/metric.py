@@ -223,28 +223,36 @@ def sample_constant_requests(
     prompt_path: str,
     trace_path: str,
     tokenizer: PreTrainedTokenizerBase,
-    num_prompts: Optional[int] = None,
     trace_scale: float = 1.0,
     start_time: Optional[float] = None,
-    end_time: Optional[float] = None,
     constant_rate: float = 1.0,
     constant_duration: Optional[float] = None,
 ) -> List[Tuple[str, int, int, float]]:
     """Sample requests from trace file but use constant timestamps for constant rate sending"""
 
-    # Load the dataset from trace file, num_prompts controls how many entries to read
+    # Calculate the target number of requests based on constant_rate and constant_duration
+    target_request_count = None
+    if constant_duration is not None and constant_rate > 0:
+        target_request_count = int(constant_rate * constant_duration)
+
+    # Load the dataset from trace file and determine end_time based on target request count
     mooncake_data = []
+    end_time = None
+
     with open(trace_path, 'r') as file:
         for line in file:
             data = json.loads(line)
             timestamp_ms = float(data["timestamp"])  # Now in milliseconds
-            if start_time is not None and end_time is not None:
-                if timestamp_ms < start_time:
-                    continue
-                if timestamp_ms > end_time:
-                    break
+
+            # Skip requests before start_time
+            if start_time is not None and timestamp_ms < start_time:
+                continue
+
             mooncake_data.append(data)
-            if num_prompts is not None and len(mooncake_data) == num_prompts:
+
+            # If we have a target request count, find the end_time for exactly that many requests
+            if target_request_count is not None and len(mooncake_data) >= target_request_count:
+                end_time = timestamp_ms
                 break
 
     # Use all mooncake_data entries to generate prompts

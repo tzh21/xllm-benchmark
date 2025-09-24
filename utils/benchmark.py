@@ -32,7 +32,7 @@ from metric import (
     sample_constant_requests,
 )
 
-AIOHTTP_TIMEOUT = aiohttp.ClientTimeout(total=3600)
+AIOHTTP_TIMEOUT = aiohttp.ClientTimeout(total=600)
 
 
 def set_ulimit(target_soft_limit=65535):
@@ -180,10 +180,8 @@ def get_dataset(args, tokenizer):
             prompt_path=args.prompt_path,
             trace_path=args.trace_path,
             tokenizer=tokenizer,
-            num_prompts=args.num_prompts,
             trace_scale=args.trace_scale,
             start_time=args.trace_start_time,
-            end_time=args.trace_end_time,
             constant_rate=args.constant_rate,
             constant_duration=args.constant_duration,
         )

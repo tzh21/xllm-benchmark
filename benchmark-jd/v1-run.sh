@@ -16,7 +16,7 @@ mkdir -p $base_dir/log/result
 # Preheat
 ./simple-online/run.sh $xservice_port
 
-log_base=${current_time}-sr-${sampling_ratio}-qps-${qps}-baseline
+log_base=${current_time}-sr-${sampling_ratio}-qps-${qps}-v1
 
 python utils/benchmark.py \
     --base-url http://127.0.0.1:$xservice_port \
@@ -25,7 +25,7 @@ python utils/benchmark.py \
     --trace-path /export/home/tangzihan/xllm-base/datasets/online-datasets/jd-online.jsonl \
     --model /export/home/tangzihan/modelscope/models/Qwen/Qwen2.5-7B-Instruct \
     --trace-start-time 50400000 \
-    --trace-end-time 54000000 \
+    --trace-end-time 52200000 \
     --sampling-ratio $sampling_ratio \
     --slo-ttft 5000 \
     --slo-tpot 40 \
@@ -39,11 +39,11 @@ python utils/benchmark.py \
     --trace-path /export/home/tangzihan/xllm-base/datasets/offline-datasets/jd-offline.jsonl \
     --model /export/home/tangzihan/modelscope/models/Qwen/Qwen2.5-7B-Instruct \
     --trace-start-time 50400000 \
-    --trace-end-time 54000000 \
+    --offline \
+    --constant-rate $qps \
+    --constant-duration 1800 \
     --slo-ttft 100000000 \
     --slo-tpot 100000000 \
-    --constant-rate $qps \
-    --constant-duration 3600 \
     --output-file "$base_dir/log/result/$log_base-offline.json" \
     | tee "$base_dir/log/runtime/$log_base-offline.log" &
 
