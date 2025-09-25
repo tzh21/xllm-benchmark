@@ -419,31 +419,38 @@ def calculate_metrics(
             stacklevel=2,
         )
 
-    # Calculate SLO violation rates
+    # Calculate SLO violation rates including timeouts
     slo_ttft_violation_rate = None
     slo_tpot_violation_rate = None
     slo_ttft_tpot_violation_rate = None
     slo_ttft_or_tpot_violation_rate = None
-    
+
     if slo_ttft_ms is not None or slo_tpot_ms is not None:
-        if completed > 0:
+        total_requests = len(outputs)
+        if total_requests > 0:
             ttft_violations = 0
             tpot_violations = 0
             both_violations = 0
             either_violations = 0
-            
+            timeout_requests = 0
+
             for i in range(len(outputs)):
+                # Count timeout requests as violations
+                is_timeout = not outputs[i].success and outputs[i].error == "Request timeout"
+                if is_timeout:
+                    timeout_requests += 1
+
                 if outputs[i].success:
                     ttft_ms = outputs[i].ttft * 1000
                     output_len = outputs[i].output_len
-                    
+
                     ttft_violates = slo_ttft_ms is not None and ttft_ms > slo_ttft_ms
                     tpot_violates = False
-                    
+
                     if slo_tpot_ms is not None and output_len > 2:
                         tpot_ms = ((outputs[i].latency - outputs[i].ttft) / (output_len - 2)) * 1000
                         tpot_violates = tpot_ms > slo_tpot_ms
-                    
+
                     if ttft_violates:
                         ttft_violations += 1
                     if tpot_violates:
@@ -452,15 +459,25 @@ def calculate_metrics(
                         both_violations += 1
                     if ttft_violates or tpot_violates:
                         either_violations += 1
-            
+                elif is_timeout:
+                    # Timeout requests count as both TTFT and TPOT violations
+                    if slo_ttft_ms is not None:
+                        ttft_violations += 1
+                    if slo_tpot_ms is not None:
+                        tpot_violations += 1
+                    if slo_ttft_ms is not None and slo_tpot_ms is not None:
+                        both_violations += 1
+                    if slo_ttft_ms is not None or slo_tpot_ms is not None:
+                        either_violations += 1
+
             if slo_ttft_ms is not None:
-                slo_ttft_violation_rate = ttft_violations / completed
+                slo_ttft_violation_rate = ttft_violations / total_requests
             if slo_tpot_ms is not None:
-                slo_tpot_violation_rate = tpot_violations / completed
+                slo_tpot_violation_rate = tpot_violations / total_requests
             if slo_ttft_ms is not None and slo_tpot_ms is not None:
-                slo_ttft_tpot_violation_rate = both_violations / completed
+                slo_ttft_tpot_violation_rate = both_violations / total_requests
             if slo_ttft_ms is not None or slo_tpot_ms is not None:
-                slo_ttft_or_tpot_violation_rate = either_violations / completed
+                slo_ttft_or_tpot_violation_rate = either_violations / total_requests
 
     metrics = BenchmarkMetrics(
         completed=completed,

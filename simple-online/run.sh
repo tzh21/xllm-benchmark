@@ -1,6 +1,12 @@
-xservice_port=${1:?}
-# model=Llama-3.3-70B-Instruct
-model=Qwen2.5-7B-Instruct
+nodes=${1:?}; shift
+xservice_port=${1:?}; shift
+if [ $nodes == "m" ]; then
+    model=Qwen2.5-72B-Instruct
+elif [ $nodes == "s" ]; then
+    model=Qwen2.5-7B-Instruct
+else
+    echo "Unknown nodes"
+fi
 curl http://127.0.0.1:$xservice_port/v1/completions \
   -H "Content-Type: application/json" \
   -d @- <<EOF

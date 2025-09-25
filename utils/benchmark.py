@@ -656,6 +656,9 @@ def main():
     )
 
     args = parser.parse_args()
+    if args.constant_rate is not None and args.constant_rate == 0.0:
+        print("Constant rate equals 0. Exit")
+        sys.exit(0)
     run_benchmark(args)
 
 
