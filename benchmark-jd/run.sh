@@ -1,18 +1,21 @@
-#!/bin/bash
-
-set -e
-
-current_time=$(date +"%m%d-%H%M%S")
-echo "Running benchmark at ${current_time}"
-
 version=${1:?}; shift
 nodes=${1:?}; shift
 dataset=${1:?}; shift
 qps=${1:?}; shift
-xservice_port=${1:?}; shift
+p=${1:?}; shift
+d=${1:?}; shift
+
+source "benchmark-jd/common-cleanup.sh"
+
+current_time=$(date +"%m%d-%H%M%S")
+echo "Running benchmark at ${current_time}"
+
+# Extract xservice_port from cluster-info filename: {nodes}-p-{p}-d-{d}-x-{xservice_port}-{timestamp}.log
+cluster_info_file=$(ls /export/home/tangzihan/xllm-base/scripts/clusters-info/${nodes}-p-${p}-d-${d}-x-*.log | head -1)
+xservice_port=$(basename "$cluster_info_file" | sed -n 's/.*-x-\([0-9]*\)-.*/\1/p')
 
 # Preheat
-./simple-online/run.sh $nodes $xservice_port
+bash ./simple-test/run.sh false $nodes $xservice_port
 
 trace_options=()
 const_options=()
@@ -58,12 +61,16 @@ elif [ $dataset == "code" ]; then
         --sampling-ratio $sampling_ratio
     )
 elif [ $dataset == "conv" ]; then
-    sampling_ratio=0.05
+    sampling_ratio=0.1
     trace_options+=(
         --trace-path /export/home/tangzihan/xllm-base/datasets/online-datasets/AzureLLMInferenceTrace_conv_extracted_144000000_147600000.jsonl
         --trace-start-time 144000000
         --trace-end-time 145800000
         --sampling-ratio $sampling_ratio
+        --seed $RANDOM
+    )
+    const_options+=(
+        --seed $RANDOM
     )
 else
     echo "Unknown dataset"; exit 1
@@ -77,7 +84,7 @@ const_options+=(
 
 result_dir="./benchmark-jd/$dataset/log/result/$nodes-nodes"; mkdir -p $result_dir
 runtime_dir="./benchmark-jd/$dataset/log/runtime/$nodes-nodes"; mkdir -p $runtime_dir
-log_base=${current_time}-sr-${sampling_ratio}-qps-${qps}-$version
+log_base=${dataset}-${current_time}-sr-${sampling_ratio}-qps-${qps}-$version
 
 python utils/benchmark.py \
     --base-url http://127.0.0.1:$xservice_port \

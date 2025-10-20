@@ -117,15 +117,20 @@ async def async_request_xllm(
                             if chunk == "[DONE]":
                                 pass
                             else:
-                                data = json.loads(chunk)
+                                try:
+                                    data = json.loads(chunk)
 
-                                if data["choices"][0].get("text"):
-                                    timestamp = time.perf_counter()
-                                    if token_count < 2:
-                                        output.ttft = timestamp - st
-                                    token_count += 1
-                                    chunk_text = data["choices"][0]["text"]
-                                    generated_text += chunk_text
+                                    if data["choices"][0].get("text"):
+                                        timestamp = time.perf_counter()
+                                        if token_count < 2:
+                                            output.ttft = timestamp - st
+                                        token_count += 1
+                                        chunk_text = data["choices"][0]["text"]
+                                        generated_text += chunk_text
+                                except json.JSONDecodeError as e:
+                                    output.success = False
+                                    output.error = f"JSON decode error: {e}. Raw response: {chunk}"
+                                    break
                     else:
                         assert False # Non-streaming response not supported
                         # data = await response.json()
@@ -325,7 +330,7 @@ async def benchmark(
     print("{:<40} {:<10}".format("Traffic request rate:", request_rate))
     print("{:<40} {:<10}".format("Max request concurrency:",
                                  max_concurrency if max_concurrency else "not set"))
-    print("{:<40} {:<10}".format("Successful requests:", metrics.completed))
+    print("{:<40} {:<10}".format("Successful / total requests:", f"{metrics.completed} / {len(input_requests)}"))
     print("{:<40} {:<10.2f}".format("Benchmark duration (s):", benchmark_duration))
     print("{:<40} {:<10}".format("Total input tokens:", metrics.total_input))
     print("{:<40} {:<10}".format("Total generated tokens:", metrics.total_output))
