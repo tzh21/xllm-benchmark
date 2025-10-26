@@ -15,7 +15,10 @@ cluster_info_file=$(ls /export/home/tangzihan/xllm-base/scripts/clusters-info/${
 xservice_port=$(basename "$cluster_info_file" | sed -n 's/.*-x-\([0-9]*\)-.*/\1/p')
 
 # Preheat
+echo "Running online simple test"
 bash ./simple-test/run.sh false $nodes $xservice_port
+echo "Running offline simple test"
+bash ./simple-test/run.sh true $nodes $xservice_port
 
 trace_options=()
 const_options=()
@@ -95,7 +98,8 @@ python utils/benchmark.py \
     --slo-tpot $slo_tpot \
     --output-file "$result_dir/$log_base-online.json" \
     "${trace_options[@]}" \
-    | tee "$runtime_dir/$log_base-online.log" &
+    2>&1 | tee "$runtime_dir/$log_base-online.log" &
+echo "Online benchmark: $!"
 
 python utils/benchmark.py \
     --base-url http://127.0.0.1:$xservice_port \
@@ -106,7 +110,8 @@ python utils/benchmark.py \
     --slo-tpot 100000000 \
     --output-file "$result_dir/$log_base-offline.json" \
     "${const_options[@]}" \
-    | tee "$runtime_dir/$log_base-offline.log" &
+    2>&1 | tee "$runtime_dir/$log_base-offline.log" &
+echo "Offline benchmark: $!"
 
 wait
 

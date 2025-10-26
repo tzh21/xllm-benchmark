@@ -54,16 +54,6 @@ def get_tokenizer(pretrained_model_name_or_path: str) -> PreTrainedTokenizerBase
     )
 
 
-def parse_request_rate_range(request_rate_range: str) -> List[int]:
-    """Parse request rate range string into list of rates"""
-    parts = request_rate_range.split(",")
-    if len(parts) == 3:
-        start, stop, step = map(int, parts)
-        return list(range(start, stop, step))
-    else:
-        return list(map(int, parts))
-
-
 async def async_request_xllm(
     request_func_input: RequestFuncInput,
     tokenizer: PreTrainedTokenizerBase,
@@ -98,55 +88,42 @@ async def async_request_xllm(
         generated_text = ""
         ttft = 0.0
         token_count = 0
-        st = time.perf_counter()
+        start_time = time.perf_counter()
 
         try:
             async with session.post(url=api_url, json=payload, headers=headers) as response:
                 if response.status == 200:
-                    if not disable_stream:
-                        async for chunk_bytes in response.content:
-                            chunk_bytes = chunk_bytes.strip()
-                            if not chunk_bytes:
-                                continue
+                    curr_time = time.perf_counter()
+                    latency = curr_time - start_time
 
-                            chunk = chunk_bytes.decode("utf-8")
-                            if chunk.startswith("data: "):
-                                chunk = chunk[6:]
+                    async for chunk_bytes in response.content:
+                        chunk_bytes = chunk_bytes.strip()
+                        if not chunk_bytes:
+                            continue
+                        chunk = chunk_bytes.strip().decode("utf-8")
+                        if chunk == "[DONE]":
+                            break
+                        if chunk.startswith("data: "):
+                            chunk = chunk[6:]
 
-                            latency = time.perf_counter() - st
-                            if chunk == "[DONE]":
-                                pass
-                            else:
-                                try:
-                                    data = json.loads(chunk)
+                        try:
+                            data = json.loads(chunk)
+                            if data["choices"][0].get("text"):
+                                if token_count < 2:
+                                    output.ttft = curr_time - start_time
+                                token_count += 1
+                                generated_text = data["choices"][0]["text"]
+                        except json.JSONDecodeError as e:
+                            output.success = False
+                            output.error = f"JSON decode error: {e}. Raw response: {chunk}"
+                            break
 
-                                    if data["choices"][0].get("text"):
-                                        timestamp = time.perf_counter()
-                                        if token_count < 2:
-                                            output.ttft = timestamp - st
-                                        token_count += 1
-                                        chunk_text = data["choices"][0]["text"]
-                                        generated_text += chunk_text
-                                except json.JSONDecodeError as e:
-                                    output.success = False
-                                    output.error = f"JSON decode error: {e}. Raw response: {chunk}"
-                                    break
-                    else:
-                        assert False # Non-streaming response not supported
-                        # data = await response.json()
-                        # generated_text = data["choices"][0]["text"]
-                        # latency = time.perf_counter() - st
-                        # output.ttft = latency
-
-                    output.generated_text = generated_text
                     output.success = True
+                    output.generated_text = generated_text
                     output.latency = latency
                     output.output_len = request_func_input.output_len  # Use actual token count instead of expected length
                     output.timestamp = request_func_input.timestamp
-                    if token_count > 2:
-                        output.tpot = (output.latency - output.ttft) / (output.output_len - 2)
-                    else:
-                        output.tpot = 0.0
+                    output.tpot = (output.latency - output.ttft) / (output.output_len - 2) if token_count > 2 else 0.0
                 else:
                     output.success = False
                     output.error = f"HTTP {response.status}: {await response.text()}"
@@ -162,7 +139,7 @@ async def async_request_xllm(
             output.success = False
             output.error = str(e)
 
-    if pbar:
+    if pbar is not None:
         pbar.update(1)
     return output
 
@@ -196,12 +173,9 @@ def get_dataset(args, tokenizer):
 
 async def benchmark(
     api_url: str,
-    base_url: str,
     model_id: str,
     tokenizer: PreTrainedTokenizerBase,
     input_requests: List[Tuple[str, int, int, float]],
-    request_rate: float,
-    max_concurrency: Optional[int],
     disable_tqdm: bool,
     disable_stream: bool,
     disable_ignore_eos: bool,
@@ -209,33 +183,9 @@ async def benchmark(
     slo_tpot: float,
     extra_request_body: Dict[str, Any],
     args: argparse.Namespace,
-    profile: bool = False,
     offline: bool = False,
 ):
     """Run benchmark with specified configuration"""
-
-    # Limit concurrency
-    semaphore = asyncio.Semaphore(max_concurrency) if max_concurrency else None
-
-    async def limited_request_func(request_func_input, pbar):
-        if semaphore is None:
-            return await async_request_xllm(
-                request_func_input=request_func_input,
-                tokenizer=tokenizer,
-                pbar=pbar,
-                disable_stream=disable_stream,
-                disable_ignore_eos=disable_ignore_eos,
-                offline=offline,
-            )
-        async with semaphore:
-            return await async_request_xllm(
-                request_func_input=request_func_input,
-                tokenizer=tokenizer,
-                pbar=pbar,
-                disable_stream=disable_stream,
-                disable_ignore_eos=disable_ignore_eos,
-                offline=offline,
-            )
 
     # Warmup test
     test_prompt, test_prompt_len, test_output_len, test_timestamp = input_requests[0]
@@ -271,7 +221,7 @@ async def benchmark(
     benchmark_start_time = time.perf_counter()
     tasks: List[asyncio.Task] = []
 
-    async for request in get_request(input_requests, request_rate):
+    for request in input_requests:
         prompt, prompt_len, output_len, timestamp = request
         request_func_input = RequestFuncInput(
             model=model_id,
@@ -285,7 +235,14 @@ async def benchmark(
         )
         tasks.append(
             asyncio.create_task(
-                limited_request_func(request_func_input=request_func_input, pbar=pbar)
+                async_request_xllm(
+                    request_func_input=request_func_input,
+                    tokenizer=tokenizer,
+                    pbar=pbar,
+                    disable_stream=disable_stream,
+                    disable_ignore_eos=disable_ignore_eos,
+                    offline=offline,
+                )
             )
         )
 
@@ -327,9 +284,6 @@ async def benchmark(
     # Print results
     print("\n{s:{c}^{n}}".format(s=" Benchmark Result ", n=50, c="="))
     print("{:<40} {:<10}".format("Backend:", "xllm"))
-    print("{:<40} {:<10}".format("Traffic request rate:", request_rate))
-    print("{:<40} {:<10}".format("Max request concurrency:",
-                                 max_concurrency if max_concurrency else "not set"))
     print("{:<40} {:<10}".format("Successful / total requests:", f"{metrics.completed} / {len(input_requests)}"))
     print("{:<40} {:<10.2f}".format("Benchmark duration (s):", benchmark_duration))
     print("{:<40} {:<10}".format("Total input tokens:", metrics.total_input))
@@ -371,8 +325,6 @@ async def benchmark(
 
     return {
         "backend": "xllm",
-        "request_rate": request_rate,
-        "max_concurrency": max_concurrency,
         "duration": benchmark_duration,
         "sampling_ratio": args.sampling_ratio,
         "sent_requests": len(input_requests),
@@ -423,15 +375,6 @@ def run_benchmark(args):
 
     # Get model name
     if args.model is None:
-        try:
-            response = requests.get(model_url)
-            model_list = response.json().get("data", [])
-            args.model = model_list[0]["id"] if model_list else None
-        except Exception as e:
-            print(f"Failed to fetch model from {model_url}. Error: {e}")
-            sys.exit(1)
-
-    if args.model is None:
         print("No model specified or found. Please provide a model using `--model`.")
         sys.exit(1)
 
@@ -448,71 +391,28 @@ def run_benchmark(args):
     print(f"Number of input requests: {len(input_requests)}")
 
     # Run benchmark
-    if not args.multi:
-        result = asyncio.run(
-            benchmark(
-                api_url=api_url,
-                base_url=base_url,
-                model_id=args.model,
-                tokenizer=tokenizer,
-                input_requests=input_requests,
-                request_rate=args.request_rate,
-                max_concurrency=args.max_concurrency,
-                disable_tqdm=args.disable_tqdm,
-                disable_stream=args.disable_stream,
-                disable_ignore_eos=args.disable_ignore_eos,
-                slo_ttft=args.slo_ttft,
-                slo_tpot=args.slo_tpot,
-                extra_request_body=extra_request_body,
-                args=args,
-                profile=args.profile,
-                offline=args.offline,
-            )
+    result = asyncio.run(
+        benchmark(
+            api_url=api_url,
+            model_id=args.model,
+            tokenizer=tokenizer,
+            input_requests=input_requests,
+            disable_tqdm=args.disable_tqdm,
+            disable_stream=args.disable_stream,
+            disable_ignore_eos=args.disable_ignore_eos,
+            slo_ttft=args.slo_ttft,
+            slo_tpot=args.slo_tpot,
+            extra_request_body=extra_request_body,
+            args=args,
+            offline=args.offline,
         )
-        save_results(args, result)
-    else:
-        # Multiple request rates
-        request_rates = parse_request_rate_range(args.request_rate_range)
-        for rate in request_rates:
-            result = asyncio.run(
-                benchmark(
-                    api_url=api_url,
-                    base_url=base_url,
-                    model_id=args.model,
-                    tokenizer=tokenizer,
-                    input_requests=input_requests,
-                    request_rate=rate,
-                    max_concurrency=args.max_concurrency,
-                    disable_tqdm=args.disable_tqdm,
-                    disable_stream=args.disable_stream,
-                    disable_ignore_eos=args.disable_ignore_eos,
-                    slo_ttft=args.slo_ttft,
-                    slo_tpot=args.slo_tpot,
-                    extra_request_body=extra_request_body,
-                    args=args,
-                    profile=args.profile,
-                    offline=args.offline,
-                )
-            )
-            result["request_rate"] = rate
-            save_results(args, result)
+    )
+    save_results(args, result)
 
 
 def save_results(args, result):
     """Save benchmark results to file"""
-    if args.output_file:
-        output_file = args.output_file
-    else:
-        now = datetime.now().strftime("%m%d%H%M%S")
-        os.makedirs("results", exist_ok=True)
-
-        # Handle num_prompts=None for file naming
-        prompt_count = args.num_prompts if args.num_prompts is not None else "all"
-
-        if args.traffic_mode == "trace":
-            output_file = f"results/xllm_{now}_{prompt_count}_{args.traffic_mode}_{args.trace_scale}.jsonl"
-        else:
-            output_file = f"results/xllm_{now}_{prompt_count}_{args.traffic_mode}.jsonl"
+    output_file = args.output_file
 
     # Add dataset info to result
     result["traffic_mode"] = args.traffic_mode
@@ -565,18 +465,6 @@ def main():
 
     # Request configuration
     parser.add_argument(
-        "--request-rate",
-        type=float,
-        default=float("inf"),
-        help="Number of requests per second. Use 'inf' for batch mode.",
-    )
-    parser.add_argument(
-        "--max-concurrency",
-        type=int,
-        default=None,
-        help="Maximum number of concurrent requests.",
-    )
-    parser.add_argument(
         "--disable-stream",
         action="store_true",
         help="Disable streaming mode.",
@@ -588,7 +476,12 @@ def main():
     )
 
     # Output configuration
-    parser.add_argument("--output-file", type=str, help="Output JSONL file name.")
+    parser.add_argument(
+        "--output-file",
+        type=str,
+        default=None,
+        help="Output JSONL file name."
+    )
     parser.add_argument(
         "--disable-tqdm",
         action="store_true",
@@ -610,26 +503,12 @@ def main():
         help="Service Level Objective for TPOT in milliseconds.",
     )
 
-
     # Trace dataset arguments
     parser.add_argument("--trace-path", type=str, default="", help="Trace file path.")
     parser.add_argument("--trace-start-time", type=float, default=None, help="Start time in milliseconds")
     parser.add_argument("--trace-end-time", type=float, default=None, help="End time in milliseconds")
     parser.add_argument("--trace-scale", type=float, default=1)
     parser.add_argument("--sampling-ratio", type=float, default=1.0)
-
-    # Multi-rate testing
-    parser.add_argument(
-        "--multi",
-        action="store_true",
-        help="Test multiple request rates.",
-    )
-    parser.add_argument(
-        "--request-rate-range",
-        type=str,
-        default="2,34,2",
-        help="Range of request rates (start,stop,step) or comma-separated list.",
-    )
 
     # Advanced options
     parser.add_argument(
@@ -661,6 +540,8 @@ def main():
     )
 
     args = parser.parse_args()
+    assert not args.disable_stream
+    assert args.output_file is not None
     if args.constant_rate is not None and args.constant_rate == 0.0:
         print("Constant rate equals 0. Exit")
         sys.exit(0)

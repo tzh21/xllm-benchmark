@@ -28,6 +28,7 @@ from transformers import (
 import csv
 import pandas as pd
 
+
 @dataclass
 class RequestFuncInput:
     prompt: str
@@ -88,11 +89,8 @@ class BenchmarkMetrics:
 
 
 
-
 def interpolate_timestamp(start, end):
     return random.uniform(start, end)
-
-
 
 
 def sample_trace_requests(
@@ -346,7 +344,7 @@ def sample_constant_requests(
 async def get_request(
     input_requests: List[Tuple[str, int, int, float]],
     request_rate: float,
-) -> AsyncGenerator[Tuple[str, int, int], None]:
+) -> AsyncGenerator[Tuple[str, int, int, float], None]:
     
     if input_requests[0][3] == -1.0:
         input_requests = iter(input_requests)
@@ -489,10 +487,8 @@ def calculate_metrics(
         output_throughput=sum(output_lens) / dur_s,
         output_throughput_retokenized=sum(retokenized_output_lens) / dur_s,
         total_throughput=(total_input + sum(output_lens)) / dur_s,
-        total_throughput_retokenized=(total_input + sum(retokenized_output_lens))
-        / dur_s,
-        mean_ttft_ms=np.mean(ttfts or 0)
-        * 1000,  # ttfts is empty if streaming is not supported by backend
+        total_throughput_retokenized=(total_input + sum(retokenized_output_lens)) / dur_s,
+        mean_ttft_ms=np.mean(ttfts or 0) * 1000,  # ttfts is empty if streaming is not supported by backend
         median_ttft_ms=np.median(ttfts or 0) * 1000,
         std_ttft_ms=np.std(ttfts or 0) * 1000,
         p99_ttft_ms=np.percentile(ttfts or 0, 99) * 1000,

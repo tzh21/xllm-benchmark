@@ -6,6 +6,7 @@
 cleanup() {
     echo "Cleaning up..."
     trap - INT TERM
+    echo "Subprocesses: $(jobs -p)"
     jobs -p | xargs -r kill
     wait
 }
