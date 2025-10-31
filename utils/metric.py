@@ -341,40 +341,6 @@ def sample_constant_requests(
     return input_requests
 
 
-async def get_request(
-    input_requests: List[Tuple[str, int, int, float]],
-    request_rate: float,
-) -> AsyncGenerator[Tuple[str, int, int, float], None]:
-    
-    if input_requests[0][3] == -1.0:
-        input_requests = iter(input_requests)
-        for request in input_requests:
-            yield request
-
-            if request_rate == float("inf"):
-                # If the request rate is infinity, then we don't need to wait.
-                continue
-
-            # Sample the request interval from the exponential distribution.
-            interval = np.random.exponential(1.0 / request_rate)
-            # The next request will be sent after the interval.
-            await asyncio.sleep(interval)
-    else:
-        # Use relative timestamps to avoid long waits
-        base_timestamp = input_requests[0][3]  # First request timestamp as baseline (in milliseconds)
-        start_time = time.perf_counter()
-        # If the input_requests has timestamp, then we need to wait until the timestamp.
-        input_requests = iter(input_requests)
-        for request in input_requests:
-
-            # Wait based on relative time from the first request
-            # Convert millisecond timestamps to seconds for timing calculations
-            relative_time = (request[3] - base_timestamp) / 1000.0
-            target_time = start_time + relative_time
-            await asyncio.sleep(max(0, target_time - time.perf_counter()))
-            yield request
-
-
 def calculate_metrics(
     input_requests: List[Tuple[str, int, int, float]],
     outputs: List[RequestFuncOutput],

@@ -27,12 +27,11 @@ from metric import (
     RequestFuncInput,
     RequestFuncOutput,
     calculate_metrics,
-    get_request,
     sample_trace_requests,
     sample_constant_requests,
 )
 
-AIOHTTP_TIMEOUT = aiohttp.ClientTimeout(total=600)
+AIOHTTP_TIMEOUT = aiohttp.ClientTimeout(total=3600) # in seconds
 
 
 def set_ulimit(target_soft_limit=65535):
@@ -93,18 +92,19 @@ async def async_request_xllm(
         try:
             async with session.post(url=api_url, json=payload, headers=headers) as response:
                 if response.status == 200:
-                    curr_time = time.perf_counter()
-                    latency = curr_time - start_time
 
                     async for chunk_bytes in response.content:
+                        curr_time = time.perf_counter()
+                        latency = curr_time - start_time
+
                         chunk_bytes = chunk_bytes.strip()
                         if not chunk_bytes:
                             continue
-                        chunk = chunk_bytes.strip().decode("utf-8")
-                        if chunk == "[DONE]":
-                            break
+                        chunk = chunk_bytes.decode("utf-8")
                         if chunk.startswith("data: "):
                             chunk = chunk[6:]
+                        if chunk == "[DONE]":
+                            break
 
                         try:
                             data = json.loads(chunk)
@@ -219,9 +219,15 @@ async def benchmark(
 
     # Run all requests
     benchmark_start_time = time.perf_counter()
-    tasks: List[asyncio.Task] = []
+    tasks: List[Tuple[int, asyncio.Task]] = []
 
-    for request in input_requests:
+    for idx, request in enumerate(input_requests):
+        if idx != 0:
+            last_timestamp = input_requests[idx - 1][3]
+            curr_timestamp = input_requests[idx][3]
+            sleep_duration = (curr_timestamp - last_timestamp) / 1000
+            await asyncio.sleep(sleep_duration)
+            
         prompt, prompt_len, output_len, timestamp = request
         request_func_input = RequestFuncInput(
             model=model_id,
@@ -233,20 +239,45 @@ async def benchmark(
             extra_request_body=extra_request_body,
             timestamp=timestamp,
         )
-        tasks.append(
-            asyncio.create_task(
-                async_request_xllm(
-                    request_func_input=request_func_input,
-                    tokenizer=tokenizer,
-                    pbar=pbar,
-                    disable_stream=disable_stream,
-                    disable_ignore_eos=disable_ignore_eos,
-                    offline=offline,
-                )
+        task = asyncio.create_task(
+            async_request_xllm(
+                request_func_input=request_func_input,
+                tokenizer=tokenizer,
+                pbar=pbar,
+                disable_stream=disable_stream,
+                disable_ignore_eos=disable_ignore_eos,
+                offline=offline,
             )
         )
+        tasks.append((idx, task))
 
-    outputs: List[RequestFuncOutput] = await asyncio.gather(*tasks)
+    try:
+        outputs: List[RequestFuncOutput] = await asyncio.gather(*[task for _, task in tasks])
+    except KeyboardInterrupt:
+        print("\n\nKeyboardInterrupt received. Cancelling remaining requests and processing partial results...")
+        # Cancel all pending tasks
+        for _, task in tasks:
+            if not task.done():
+                task.cancel()
+
+        # Gather completed results with their indices
+        completed_pairs = []
+        for idx, task in tasks:
+            if task.done() and not task.cancelled():
+                try:
+                    result = task.result()
+                    if result.success:
+                        completed_pairs.append((idx, result))
+                except Exception:
+                    pass
+
+        print(f"Processed {len(completed_pairs)} completed requests out of {len(tasks)} total.")
+
+        # Sort by index and extract outputs
+        completed_pairs.sort(key=lambda x: x[0])
+        outputs = [result for _, result in completed_pairs]
+        # Update input_requests to only include completed ones
+        input_requests = [input_requests[idx] for idx, _ in completed_pairs]
 
     if pbar is not None:
         pbar.close()
@@ -281,49 +312,7 @@ async def benchmark(
         slo_tpot_ms=slo_tpot,
     )
 
-    # Print results
-    print("\n{s:{c}^{n}}".format(s=" Benchmark Result ", n=50, c="="))
-    print("{:<40} {:<10}".format("Backend:", "xllm"))
-    print("{:<40} {:<10}".format("Successful / total requests:", f"{metrics.completed} / {len(input_requests)}"))
-    print("{:<40} {:<10.2f}".format("Benchmark duration (s):", benchmark_duration))
-    print("{:<40} {:<10}".format("Total input tokens:", metrics.total_input))
-    print("{:<40} {:<10}".format("Total generated tokens:", metrics.total_output))
-    print("{:<40} {:<10.2f}".format("Request throughput (req/s):", metrics.request_throughput))
-    print("{:<40} {:<10.2f}".format("Input token throughput (tok/s):", metrics.input_throughput))
-    print("{:<40} {:<10.2f}".format("Output token throughput (tok/s):", metrics.output_throughput))
-    print("{:<40} {:<10.2f}".format("Total token throughput (tok/s):", metrics.total_throughput))
-    print("{:<40} {:<10.2f}".format("Concurrency:", metrics.concurrency))
-
-    print("{s:{c}^{n}}".format(s="End-to-End Latency", n=50, c="-"))
-    print("{:<40} {:<10.2f}".format("Mean E2E Latency (ms):", metrics.mean_e2e_latency_ms))
-    print("{:<40} {:<10.2f}".format("Median E2E Latency (ms):", metrics.median_e2e_latency_ms))
-    print("{:<40} {:<10.2f}".format("P99 E2E Latency (ms):", metrics.p99_e2e_latency_ms))
-    print("{:<40} {:<10.2f}".format("P90 E2E Latency (ms):", metrics.p90_e2e_latency_ms))
-
-    print("{s:{c}^{n}}".format(s="Time to First Token", n=50, c="-"))
-    print("{:<40} {:<10.2f}".format("Mean TTFT (ms):", metrics.mean_ttft_ms))
-    print("{:<40} {:<10.2f}".format("Median TTFT (ms):", metrics.median_ttft_ms))
-    print("{:<40} {:<10.2f}".format("P99 TTFT (ms):", metrics.p99_ttft_ms))
-    print("{:<40} {:<10.2f}".format("P90 TTFT (ms):", metrics.p90_ttft_ms))
-
-    print("{s:{c}^{n}}".format(s="Time per Output Token (excl. 1st token)", n=50, c="-"))
-    print("{:<40} {:<10.2f}".format("Mean TPOT (ms):", metrics.mean_tpot_ms))
-    print("{:<40} {:<10.2f}".format("Median TPOT (ms):", metrics.median_tpot_ms))
-    print("{:<40} {:<10.2f}".format("P99 TPOT (ms):", metrics.p99_tpot_ms))
-    print("{:<40} {:<10.2f}".format("P90 TPOT (ms):", metrics.p90_tpot_ms))
-
-    if metrics.slo_ttft_violation_rate is not None or metrics.slo_tpot_violation_rate is not None:
-        print("{s:{c}^{n}}".format(s="SLO Violation Rates", n=50, c="-"))
-        if metrics.slo_ttft_violation_rate is not None:
-            print("{:<40} {:<10.4f}".format("TTFT SLO violation rate:", metrics.slo_ttft_violation_rate))
-        if metrics.slo_tpot_violation_rate is not None:
-            print("{:<40} {:<10.4f}".format("TPOT SLO violation rate:", metrics.slo_tpot_violation_rate))
-        if metrics.slo_ttft_or_tpot_violation_rate is not None:
-            print("{:<40} {:<10.4f}".format("SLO TTFT or TPOT violation rate:", metrics.slo_ttft_or_tpot_violation_rate))
-
-    print("=" * 50)
-
-    return {
+    result = {
         "backend": "xllm",
         "duration": benchmark_duration,
         "sampling_ratio": args.sampling_ratio,
@@ -353,6 +342,7 @@ async def benchmark(
         "args": str(args),
         "requests": request_details,
     }
+    return result
 
 
 def run_benchmark(args):

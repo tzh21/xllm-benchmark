@@ -11,7 +11,7 @@ current_time=$(date +"%m%d-%H%M%S")
 echo "Running benchmark at ${current_time}"
 
 # Extract xservice_port from cluster-info filename: {nodes}-p-{p}-d-{d}-x-{xservice_port}-{timestamp}.log
-cluster_info_file=$(ls /export/home/tangzihan/xllm-base/scripts/clusters-info/${nodes}-p-${p}-d-${d}-x-*.log | head -1)
+cluster_info_file=$(ls /export/home/tangzihan/xllm-base/scripts/cluster/info/${nodes}-p-${p}-d-${d}-x-*.log | head -1)
 xservice_port=$(basename "$cluster_info_file" | sed -n 's/.*-x-\([0-9]*\)-.*/\1/p')
 
 # Preheat
@@ -89,6 +89,7 @@ result_dir="./benchmark-jd/$dataset/log/result/$nodes-nodes"; mkdir -p $result_d
 runtime_dir="./benchmark-jd/$dataset/log/runtime/$nodes-nodes"; mkdir -p $runtime_dir
 log_base=${dataset}-${current_time}-sr-${sampling_ratio}-qps-${qps}-$version
 
+# Sending requests based on a trace file
 python utils/benchmark.py \
     --base-url http://127.0.0.1:$xservice_port \
     --traffic-mode trace \
@@ -99,8 +100,10 @@ python utils/benchmark.py \
     --output-file "$result_dir/$log_base-online.json" \
     "${trace_options[@]}" \
     2>&1 | tee "$runtime_dir/$log_base-online.log" &
-echo "Online benchmark: $!"
+online_pid=$!
+echo "Online benchmark: $online_pid"
 
+# Sending requests at a const rate
 python utils/benchmark.py \
     --base-url http://127.0.0.1:$xservice_port \
     --traffic-mode constant \
@@ -111,8 +114,17 @@ python utils/benchmark.py \
     --output-file "$result_dir/$log_base-offline.json" \
     "${const_options[@]}" \
     2>&1 | tee "$runtime_dir/$log_base-offline.log" &
-echo "Offline benchmark: $!"
+offline_pid=$!
+echo "Offline benchmark: $offline_pid"
 
-wait
+# Wait for online/trace mode to finish
+wait $online_pid
+echo "Online benchmark finished, interrupting offline benchmark"
+
+# Send SIGINT to offline/const mode
+kill -INT $offline_pid
+
+# Wait for offline mode to finish
+wait $offline_pid
 
 echo 'Benchmark finished'
