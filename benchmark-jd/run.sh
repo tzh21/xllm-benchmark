@@ -100,7 +100,7 @@ python utils/benchmark.py \
     --output-file "$result_dir/$log_base-online.json" \
     "${trace_options[@]}" \
     2>&1 | tee "$runtime_dir/$log_base-online.log" &
-online_pid=$!
+online_pid=$(($! - 1))
 echo "Online benchmark: $online_pid"
 
 # Sending requests at a const rate
@@ -114,7 +114,7 @@ python utils/benchmark.py \
     --output-file "$result_dir/$log_base-offline.json" \
     "${const_options[@]}" \
     2>&1 | tee "$runtime_dir/$log_base-offline.log" &
-offline_pid=$!
+offline_pid=$(($! - 1))
 echo "Offline benchmark: $offline_pid"
 
 # Wait for online/trace mode to finish

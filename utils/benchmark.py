@@ -9,6 +9,7 @@ import json
 import os
 import random
 import resource
+import signal
 import sys
 import time
 from dataclasses import dataclass
@@ -85,7 +86,6 @@ async def async_request_xllm(
         output.prompt_len = request_func_input.prompt_len
 
         generated_text = ""
-        ttft = 0.0
         token_count = 0
         start_time = time.perf_counter()
 
@@ -135,9 +135,9 @@ async def async_request_xllm(
             output.success = False
             output.error = "Request timeout"
             # sys.exit(1)
-        except Exception as e:
-            output.success = False
-            output.error = str(e)
+        # except Exception as e:
+        #     output.success = False
+        #     output.error = str(e)
 
     if pbar is not None:
         pbar.update(1)
@@ -217,42 +217,59 @@ async def benchmark(
 
     pbar = None if disable_tqdm else tqdm(total=len(input_requests))
 
+    # 添加信号处理标志
+    shutdown_event = asyncio.Event()
+    
+    def signal_handler(sig, frame):
+        print("\n\nReceived interrupt signal. Shutting down gracefully...")
+        shutdown_event.set()
+    
+    # 注册信号处理器
+    signal.signal(signal.SIGINT, signal_handler)
+    signal.signal(signal.SIGTERM, signal_handler)
+
     # Run all requests
     benchmark_start_time = time.perf_counter()
     tasks: List[Tuple[int, asyncio.Task]] = []
 
-    for idx, request in enumerate(input_requests):
-        if idx != 0:
-            last_timestamp = input_requests[idx - 1][3]
-            curr_timestamp = input_requests[idx][3]
-            sleep_duration = (curr_timestamp - last_timestamp) / 1000
-            await asyncio.sleep(sleep_duration)
-            
-        prompt, prompt_len, output_len, timestamp = request
-        request_func_input = RequestFuncInput(
-            model=model_id,
-            prompt=prompt,
-            api_url=api_url,
-            prompt_len=prompt_len,
-            output_len=output_len,
-            lora_name="",
-            extra_request_body=extra_request_body,
-            timestamp=timestamp,
-        )
-        task = asyncio.create_task(
-            async_request_xllm(
-                request_func_input=request_func_input,
-                tokenizer=tokenizer,
-                pbar=pbar,
-                disable_stream=disable_stream,
-                disable_ignore_eos=disable_ignore_eos,
-                offline=offline,
-            )
-        )
-        tasks.append((idx, task))
-
     try:
-        outputs: List[RequestFuncOutput] = await asyncio.gather(*[task for _, task in tasks])
+        for idx, request in enumerate(input_requests):
+            # 检查是否收到中断信号
+            if shutdown_event.is_set():
+                print("Interrupt detected, stopping request submission...")
+                raise KeyboardInterrupt
+
+            if idx != 0:
+                last_timestamp = input_requests[idx - 1][3]
+                curr_timestamp = input_requests[idx][3]
+                sleep_duration = (curr_timestamp - last_timestamp) / 1000
+                await asyncio.sleep(sleep_duration)
+                
+            prompt, prompt_len, output_len, timestamp = request
+            request_func_input = RequestFuncInput(
+                model=model_id,
+                prompt=prompt,
+                api_url=api_url,
+                prompt_len=prompt_len,
+                output_len=output_len,
+                lora_name="",
+                extra_request_body=extra_request_body,
+                timestamp=timestamp,
+            )
+            task = asyncio.create_task(
+                async_request_xllm(
+                    request_func_input=request_func_input,
+                    tokenizer=tokenizer,
+                    pbar=pbar,
+                    disable_stream=disable_stream,
+                    disable_ignore_eos=disable_ignore_eos,
+                    offline=offline,
+                )
+            )
+            tasks.append((idx, task))
+
+            outputs: List[RequestFuncOutput] = await asyncio.gather(*[task for _, task in tasks])
+
     except KeyboardInterrupt:
         print("\n\nKeyboardInterrupt received. Cancelling remaining requests and processing partial results...")
         # Cancel all pending tasks
