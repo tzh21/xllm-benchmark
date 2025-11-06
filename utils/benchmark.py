@@ -32,7 +32,7 @@ from metric import (
     sample_constant_requests,
 )
 
-AIOHTTP_TIMEOUT = aiohttp.ClientTimeout(total=3600) # in seconds
+AIOHTTP_TIMEOUT = aiohttp.ClientTimeout(total=36000) # in seconds
 
 
 def set_ulimit(target_soft_limit=65535):
@@ -135,9 +135,9 @@ async def async_request_xllm(
             output.success = False
             output.error = "Request timeout"
             # sys.exit(1)
-        # except Exception as e:
-        #     output.success = False
-        #     output.error = str(e)
+        except Exception as e:
+            output.success = False
+            output.error = str(e)
 
     if pbar is not None:
         pbar.update(1)
@@ -268,7 +268,7 @@ async def benchmark(
             )
             tasks.append((idx, task))
 
-            outputs: List[RequestFuncOutput] = await asyncio.gather(*[task for _, task in tasks])
+        outputs: List[RequestFuncOutput] = await asyncio.gather(*[task for _, task in tasks])
 
     except KeyboardInterrupt:
         print("\n\nKeyboardInterrupt received. Cancelling remaining requests and processing partial results...")
