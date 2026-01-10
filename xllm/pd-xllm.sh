@@ -2,13 +2,11 @@ etcd_port=${1:?}; shift
 pd=${1:?}; shift
 npu=${1:?}; shift
 
-source scripts/utils.sh
+source xllm/utils.sh
 
 source /usr/local/Ascend/ascend-toolkit/set_env.sh 
 source /usr/local/Ascend/nnal/atb/set_env.sh
 export HCCL_IF_BASE_PORT=$(randport)  # HCCL 通信基础端口
-
-MODEL_PATH="/export/home/tangzihan.15/models/Qwen2.5-7B-Instruct"               # 模型路径
 
 args=(
     --model $MODEL_PATH
@@ -49,4 +47,4 @@ fi
 # v2
     # --max_global_tpot_ms 35
 
-/export/home/tangzihan.15/xllm/build/xllm/core/server/xllm "${args[@]}"
+$XLLM_BIN "${args[@]}"
