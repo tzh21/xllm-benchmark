@@ -125,7 +125,7 @@ async def async_request_xllm(
                         output.success = True
                     output.generated_text = generated_text
                     output.latency = latency
-                    output.output_len = request_func_input.output_len  # Use actual token count instead of expected length
+                    output.output_len = token_count  # Use actual token count
                     output.timestamp = request_func_input.timestamp
                     output.tpot = (output.latency - output.ttft) / (output.output_len - 2) if token_count > 2 else 0.0
                 else:
