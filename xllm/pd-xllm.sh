@@ -1,7 +1,7 @@
 etcd_port=${1:?}; shift
+version=${1:?}; shift
 pd=${1:?}; shift
 npu=${1:?}; shift
-version=${1:?}; shift
 
 source xllm/utils.sh
 
@@ -24,8 +24,6 @@ args=(
     --disagg_pd_port $(randport)
     --node_rank 0
     --nnodes 1
-
-    --enable_pd_ooc
 )
 
 if [ $pd = "p" ]; then
@@ -37,15 +35,28 @@ elif [ $pd = "d" ]; then
         --instance_role DECODE
     )
 else
-    echo "no pd"; exit 1
+    echo "Unknown pd"; exit 1
 fi
 
-# v0, v1
-    # --enable_latency_aware_schedule
-    # --max_global_ttft_ms 5000
-    # --max_global_tpot_ms 40
-
-# v2
-    # --max_global_tpot_ms 35
+if [ $version == "v0"; ] then
+    args+=(
+        --enable_latency_aware_schedule
+        --max_global_ttft_ms 5000
+        --max_global_tpot_ms 40
+    )
+elif [ $version == "v1"; ] then
+    args+=(
+        --enable_latency_aware_schedule
+        --max_global_ttft_ms 5000
+        --max_global_tpot_ms 40
+    )
+elif [ $version == "v2"; ] then
+    args+=(
+        --enable_pd_ooc
+        --max_global_tpot_ms 35
+    )
+else
+    echo "Unknown version"; exit 1
+fi
 
 $XLLM_BIN "${args[@]}" > $XLLM_LOG/$(date +%m%d-%H%M%S).log
