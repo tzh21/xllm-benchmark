@@ -119,9 +119,26 @@ python utils/benchmark.py \
 offline_pid=$!
 echo "Offline benchmark: $offline_pid"
 
-# Wait for online/trace mode to finish
+# 设置等待上限（秒）- 比预期的 trace 时长稍长
+ONLINE_TIMEOUT=2400
+
+# 启动超时定时器
+(
+    sleep $ONLINE_TIMEOUT
+    echo "Online benchmark timeout ($ONLINE_TIMEOUT s), forcing termination..."
+    kill -INT $online_pid 2>/dev/null
+) &
+timeout_pid=$!
+
+# 等待 online 完成（正常完成或被超时中断）
 wait $online_pid
-echo "Online benchmark finished, interrupting offline benchmark"
+online_exit_code=$?
+
+# 清理定时器
+kill $timeout_pid 2>/dev/null
+wait $timeout_pid 2>/dev/null
+
+echo "Online benchmark finished (exit code: $online_exit_code), interrupting offline benchmark"
 
 # Send SIGINT to offline/const mode
 kill -INT $offline_pid
