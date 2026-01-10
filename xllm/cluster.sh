@@ -13,5 +13,5 @@ bash xllm/pd-xllm.sh $etcd_client_port p $prefill_npu &
 bash xllm/pd-xllm.sh $etcd_client_port d $decode_npu &
 
 mkdir -p xllm/clusters-log
-rm -f xllm/clusters-log/p${prefill_npu}_d${decode_npu}*
-touch xllm/clusters-log/p${prefill_npu}_d${decode_npu}_srv-${xllm_service_http_port}_etcd-${etcd_client_port}
+rm -f xllm/clusters-log/p-${prefill_npu}_d-${decode_npu}*
+touch xllm/clusters-log/p-${prefill_npu}_d-${decode_npu}_srv-${xllm_service_http_port}_etcd-${etcd_client_port}
