@@ -1,6 +1,7 @@
 etcd_port=${1:?}; shift
 pd=${1:?}; shift
 npu=${1:?}; shift
+version=${1:?}; shift
 
 source xllm/utils.sh
 
@@ -47,4 +48,4 @@ fi
 # v2
     # --max_global_tpot_ms 35
 
-$XLLM_BIN "${args[@]}"
+$XLLM_BIN "${args[@]}" > $XLLM_LOG/$(date +%m%d-%H%M%S).log
