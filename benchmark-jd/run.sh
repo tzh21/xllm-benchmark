@@ -5,7 +5,7 @@ qps=${1:?}; shift
 p=${1:?}; shift
 d=${1:?}; shift
 
-source "benchmark-jd/common-cleanup.sh"
+# source "benchmark-jd/common-cleanup.sh"
 
 current_time=$(date +"%m%d-%H%M%S")
 echo "Running benchmark at ${current_time}"
@@ -78,6 +78,8 @@ elif [ $dataset == "conv" ]; then
 else
     echo "Unknown dataset"; exit 1
 fi
+
+# Offline requests
 const_options+=(
     --trace-path /export/home/tangzihan/xllm-base/datasets/offline-datasets/jd-offline.jsonl
     --trace-start-time 50400000 
@@ -99,8 +101,8 @@ python utils/benchmark.py \
     --slo-tpot $slo_tpot \
     --output-file "$result_dir/$log_base-online.json" \
     "${trace_options[@]}" \
-    2>&1 | tee "$runtime_dir/$log_base-online.log" &
-online_pid=$(($! - 1))
+    > "$runtime_dir/$log_base-online.log" 2>&1 &
+online_pid=$!
 echo "Online benchmark: $online_pid"
 
 # Sending requests at a const rate
@@ -113,8 +115,8 @@ python utils/benchmark.py \
     --slo-tpot 100000000 \
     --output-file "$result_dir/$log_base-offline.json" \
     "${const_options[@]}" \
-    2>&1 | tee "$runtime_dir/$log_base-offline.log" &
-offline_pid=$(($! - 1))
+    > "$runtime_dir/$log_base-offline.log" 2>&1 &
+offline_pid=$!
 echo "Offline benchmark: $offline_pid"
 
 # Wait for online/trace mode to finish
