@@ -94,7 +94,6 @@ async def async_request_xllm(
         try:
             async with session.post(url=api_url, json=payload, headers=headers) as response:
                 if response.status == 200:
-
                     async for chunk_bytes in response.content:
                         curr_time = time.perf_counter()
                         latency = curr_time - start_time
@@ -116,13 +115,11 @@ async def async_request_xllm(
                                 token_count += 1
                                 generated_text = data["choices"][0]["text"]
                         except json.JSONDecodeError as e:
-                            output.success = False
-                            output.error = f"JSON decode error: {e}. Raw response: {chunk}"
                             had_error = True
+                            output.error = f"JSON decode error: {e}. Raw response: {chunk}"
                             break
 
-                    if not had_error:
-                        output.success = True
+                    output.success = True if not had_error else False
                     output.generated_text = generated_text
                     output.latency = latency
                     output.output_len = token_count  # Use actual token count
@@ -132,10 +129,7 @@ async def async_request_xllm(
                     output.success = False
                     output.error = f"HTTP {response.status}: {await response.text()}"
         except asyncio.TimeoutError:
-            print(f"Request timeout - API URL: {request_func_input.api_url}, Model: {request_func_input.model}, "
-                  f"Prompt length: {request_func_input.prompt_len}, Output length: {request_func_input.output_len}, "
-                  f"LoRA: {request_func_input.lora_name}, Timestamp: {request_func_input.timestamp}, "
-                  f"Extra request body: {request_func_input.extra_request_body}")
+            print(f"Request timeout - Timestamp: {request_func_input.timestamp}, Prompt length: {request_func_input.prompt_len}, Output length: {request_func_input.output_len}")
             output.success = False
             output.error = "Request timeout"
             # sys.exit(1)
