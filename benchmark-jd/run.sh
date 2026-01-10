@@ -5,14 +5,12 @@ qps=${1:?}; shift
 p=${1:?}; shift
 d=${1:?}; shift
 
-# source "benchmark-jd/common-cleanup.sh"
-
 current_time=$(date +"%m%d-%H%M%S")
 echo "Running benchmark at ${current_time}"
 
-# Extract xservice_port from cluster-info filename: {nodes}-p-{p}-d-{d}-x-{xservice_port}-{timestamp}.log
-cluster_info_file=$(ls /export/home/tangzihan/xllm-base/scripts/cluster/info/${nodes}-p-${p}-d-${d}-x-*.log | head -1)
-xservice_port=$(basename "$cluster_info_file" | sed -n 's/.*-x-\([0-9]*\)-.*/\1/p')
+# Extract xservice_port from cluster-info filename: p-{p}_d-{d}_srv-{xservice_port}_etcd-{etcd_port}
+cluster_info_file=$(ls xllm/info/p-${p}_d-${d}_srv-*_etcd-* | head -1)
+xservice_port=$(basename "$cluster_info_file" | sed -n 's/.*_srv-\([0-9]*\)_etcd-.*/\1/p')
 
 # Preheat
 echo "Running online simple test"
