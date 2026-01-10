@@ -7,3 +7,9 @@ archive/
 core.*
 
 *.gz
+
+/default.etcd
+
+kernel_meta
+
+xllm/info

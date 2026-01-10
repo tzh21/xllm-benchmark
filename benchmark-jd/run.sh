@@ -8,6 +8,9 @@ d=${1:?}; shift
 current_time=$(date +"%m%d-%H%M%S")
 echo "Running benchmark at ${current_time}"
 
+bash xllm/cluster.sh $p $d
+sleep 30
+
 # Extract xservice_port from cluster-info filename: p-{p}_d-{d}_srv-{xservice_port}_etcd-{etcd_port}
 cluster_info_file=$(ls xllm/info/p-${p}_d-${d}_srv-*_etcd-* | head -1)
 xservice_port=$(basename "$cluster_info_file" | sed -n 's/.*_srv-\([0-9]*\)_etcd-.*/\1/p')
@@ -143,5 +146,10 @@ kill -INT $offline_pid
 
 # Wait for offline mode to finish
 wait $offline_pid
+
+echo "Killing xllm cluster"
+
+bash xllm/cleanup.sh $xservice_port
+sleep 10
 
 echo 'Benchmark finished'

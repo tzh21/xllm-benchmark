@@ -25,10 +25,4 @@ if [ -n "$etcd_port" ]; then
     pkill -f "listen-client-urls http://127.0.0.1:$etcd_port" 2>/dev/null && echo "Killed etcd"
 fi
 
-# 删除 info 文件
-if [ -n "$info_file" ] && [ -f "$info_file" ]; then
-    rm -f "$info_file"
-    echo "Removed info file: $info_file"
-fi
-
 echo "Cluster cleanup complete"
