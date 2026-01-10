@@ -88,6 +88,7 @@ async def async_request_xllm(
         generated_text = ""
         token_count = 0
         start_time = time.perf_counter()
+        had_error = False
 
         try:
             async with session.post(url=api_url, json=payload, headers=headers) as response:
@@ -116,9 +117,11 @@ async def async_request_xllm(
                         except json.JSONDecodeError as e:
                             output.success = False
                             output.error = f"JSON decode error: {e}. Raw response: {chunk}"
+                            had_error = True
                             break
 
-                    output.success = True
+                    if not had_error:
+                        output.success = True
                     output.generated_text = generated_text
                     output.latency = latency
                     output.output_len = request_func_input.output_len  # Use actual token count instead of expected length
