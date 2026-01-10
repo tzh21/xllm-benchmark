@@ -8,8 +8,11 @@ d=${1:?}; shift
 current_time=$(date +"%m%d-%H%M%S")
 echo "Running benchmark at ${current_time}"
 
-bash xllm/cluster.sh $p $d
-sleep 30
+bash xllm/cluster.sh $p $d; sleep 30
+
+# Activate conda environment
+eval "$(conda shell.bash hook)"
+conda activate bench
 
 # Extract xservice_port from cluster-info filename: p-{p}_d-{d}_srv-{xservice_port}_etcd-{etcd_port}
 cluster_info_file=$(ls xllm/info/p-${p}_d-${d}_srv-*_etcd-* | head -1)
@@ -33,11 +36,11 @@ else
 fi
 
 if [ $nodes == "s" ]; then
-    model_path=/export/home/tangzihan/modelscope/models/Qwen/Qwen2.5-7B-Instruct
+    model_path=/export/home/tangzihan.15/models/Qwen2.5-7B-Instruct
     slo_ttft=5000
     slo_tpot=40
 elif [ $nodes == "m" ]; then
-    model_path=/export/home/tangzihan/modelscope/models/Qwen/Qwen2.5-72B-Instruct
+    model_path=/export/home/tangzihan.15/models/Qwen2.5-7B-Instruct
     slo_ttft=10000
     slo_tpot=80
 else
@@ -149,7 +152,9 @@ wait $offline_pid
 
 echo "Killing xllm cluster"
 
-bash xllm/cleanup.sh $xservice_port
-sleep 10
+bash xllm/cleanup.sh $xservice_port; sleep 10
+
+# Deactivate conda environment
+conda deactivate
 
 echo 'Benchmark finished'
