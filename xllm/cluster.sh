@@ -12,6 +12,6 @@ sleep 2
 bash xllm/pd-xllm.sh $etcd_client_port p $prefill_npu &
 bash xllm/pd-xllm.sh $etcd_client_port d $decode_npu &
 
-mkdir -p xllm/clusters-log
+mkdir -p xllm/info
 rm -f xllm/info/p-${prefill_npu}_d-${decode_npu}*
 touch xllm/info/p-${prefill_npu}_d-${decode_npu}_srv-${xllm_service_http_port}_etcd-${etcd_client_port}
