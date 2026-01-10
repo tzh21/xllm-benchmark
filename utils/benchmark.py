@@ -88,6 +88,7 @@ async def async_request_xllm(
         generated_text = ""
         token_count = 0
         start_time = time.perf_counter()
+        latency = 0.0
         had_error = False
 
         try:
