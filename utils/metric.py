@@ -160,6 +160,7 @@ def sample_trace_requests(
             for data in dataset
         ]
     random.shuffle(dataset)
+    assert len(dataset) > 0, f"Prompt dataset is empty after filtering: {prompt_path}"
 
     input_requests: List[Tuple[str, int, int, float]] = []
     max_token_limit = 8192  # Safety limit to prevent excessive token sequences
@@ -280,6 +281,7 @@ def sample_constant_requests(
             for data in dataset
         ]
     random.shuffle(dataset)
+    assert len(dataset) > 0, f"Prompt dataset is empty after filtering: {prompt_path}"
 
     input_requests: List[Tuple[str, int, int, float]] = []
     max_token_limit = 8192  # Safety limit to prevent excessive token sequences

@@ -51,7 +51,7 @@ if [ $dataset == "jd" ]; then
         sampling_ratio=3
     fi
     trace_options+=(
-        --trace-path /export/home/tangzihan/xllm-base/datasets/online-datasets/jd-online.jsonl
+        --trace-path /export/home/tangzihan.15/ooco-datasets/jd_online.jsonl
         --trace-start-time 50400000
         --trace-end-time 52200000
         --sampling-ratio $sampling_ratio
@@ -59,7 +59,7 @@ if [ $dataset == "jd" ]; then
 elif [ $dataset == "code" ]; then
     sampling_ratio=0.25
     trace_options+=(
-        --trace-path /export/home/tangzihan/xllm-base/datasets/online-datasets/AzureLLMInferenceTrace_code_extracted_136800000_140400000.jsonl
+        --trace-path /export/home/tangzihan.15/ooco-datasets/AzureLLMInferenceTrace_code_136800000ms_138600000ms.jsonl
         --trace-start-time 136800000
         --trace-end-time 138600000
         --sampling-ratio $sampling_ratio
@@ -67,7 +67,7 @@ elif [ $dataset == "code" ]; then
 elif [ $dataset == "conv" ]; then
     sampling_ratio=0.1
     trace_options+=(
-        --trace-path /export/home/tangzihan/xllm-base/datasets/online-datasets/AzureLLMInferenceTrace_conv_extracted_144000000_147600000.jsonl
+        --trace-path /export/home/tangzihan.15/ooco-datasets/AzureLLMInferenceTrace_conv_144000000ms_147600000ms.jsonl
         --trace-start-time 144000000
         --trace-end-time 145800000
         --sampling-ratio $sampling_ratio
@@ -82,7 +82,7 @@ fi
 
 # Offline requests
 const_options+=(
-    --trace-path /export/home/tangzihan/xllm-base/datasets/offline-datasets/jd-offline.jsonl
+    --trace-path /export/home/tangzihan.15/ooco-datasets/jd_offline.jsonl
     --trace-start-time 50400000 
     --constant-rate $qps 
     --constant-duration 1800 
@@ -96,7 +96,7 @@ log_base=${dataset}-${current_time}-sr-${sampling_ratio}-qps-${qps}-$version
 python utils/benchmark.py \
     --base-url http://127.0.0.1:$xservice_port \
     --traffic-mode trace \
-    --prompt-path /export/home/tangzihan/xllm-base/datasets/online-datasets/ShareGPT_V3_unfiltered_cleaned_split.json \
+    --prompt-path /export/home/tangzihan.15/ooco-datasets/ShareGPT_random_1000.json \
     --model $model_path \
     --slo-ttft $slo_ttft \
     --slo-tpot $slo_tpot \
@@ -110,7 +110,7 @@ echo "Online benchmark: $online_pid"
 python utils/benchmark.py \
     --base-url http://127.0.0.1:$xservice_port \
     --traffic-mode constant \
-    --prompt-path /export/home/tangzihan/xllm-base/datasets/online-datasets/ShareGPT_V3_unfiltered_cleaned_split.json \
+    --prompt-path /export/home/tangzihan.15/ooco-datasets/ShareGPT_random_1000.json \
     --model $model_path \
     --slo-ttft 100000000 \
     --slo-tpot 100000000 \
